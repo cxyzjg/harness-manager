@@ -105,6 +105,24 @@ PY
     done
 
     echo
+    echo "## 项目级资源 (信任项目)"
+    TRUST2="$HOME/.pi/agent/trust.json"
+    if [ -f "$TRUST2" ]; then
+      while IFS= read -r proj; do
+        [ -n "$proj" ] || continue
+        [ -d "$proj/.pi/skills" ] || [ -d "$proj/.claude/skills" ] || continue
+        echo "- **$proj**"
+        for pdir in "$proj/.pi/skills" "$proj/.claude/skills"; do
+          [ -d "$pdir" ] || continue
+          for sk in "$pdir"/*/SKILL.md; do
+            [ -e "$sk" ] || continue
+            printf "  - [%s] \`%s\`\n" "$(basename "$(dirname "$pdir")")" "$(basename "$(dirname "$sk")")"
+          done
+        done
+      done < <(grep -oE '"[^"]+": *true' "$TRUST2" | sed 's/: *true//' | tr -d '"')
+    fi
+
+    echo
     echo "## 候选重复"
     # 1) 同名（跨目录）
     declare -A seen
