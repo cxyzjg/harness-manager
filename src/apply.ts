@@ -86,29 +86,116 @@ export function executeMutation(req: ApplyRequest, repoRoot: string, confirmed: 
       const src = res?.path;
       const targetDir = join(repoRoot, "skills", req.target ?? name);
       if (src && existsSync(src)) {
-        mkdirSync(targetDir, { recursive: true });
-        // 复制 SKILL.md（技能目录结构）
-        if (existsSync(join(src, "SKILL.md"))) {
-          cpSync(src, targetDir, { recursive: true });
+        if (existsSync(targetDir)) {
+          // 目标已存在：不重复复制，仅记录（幂等）
+          appendFileSync(decisionsPath, `\n- [${date}] \`${name}\` -> 目标 skills/${req.target ?? name}/ 已存在，标记已迁移（幂等）\n`);
         } else {
-          cpSync(src, join(targetDir, "SKILL.md"));
+          mkdirSync(targetDir, { recursive: true });
+          // 复制 SKILL.md（技能目录结构）
+          if (existsSync(join(src, "SKILL.md"))) {
+            cpSync(src, targetDir, { recursive: true });
+          } else {
+            cpSync(src, join(targetDir, "SKILL.md"));
+          }
+          appendFileSync(decisionsPath, `\n- [${date}] \`${name}\` -> 迁移到单源 skills/${req.target ?? name}/（源保留）\n`);
         }
-        appendFileSync(decisionsPath, `\n- [${date}] \`${name}\` -> 迁移到单源 skills/${req.target ?? name}/（源保留）\n`);
       }
       break;
     }
   }
 
-  // 更新缓存中的资源状态（enable/disable）
+  // 更新缓存中的资源状态（enable/disable/move）
   const cache = loadCache();
   if (cache) {
     const target = cache.resources.find((r) => r.id === req.resourceId);
     if (target) {
       if (req.type === "enable") target.status = "active";
       if (req.type === "disable") target.status = req.reason?.includes("superseded") ? "superseded-by" : "duplicate-of";
+      if (req.type === "move") {
+        const dest = `skills/${req.target ?? name}/`;
+        target.status = "migrated";
+        target.migratedTo = dest;
+        target.scope = "single-source";
+        target.source = "single-source";
+      }
     }
     saveCache(cache);
   }
 
   return { planned: [plan], executed: true };
+}
+
+// ========== 一键去重 ==========
+
+/**
+ * 一键去重：对一组重复资源，保留一个主用，其余标记为被取代。
+ * @param resourceIds 该组所有资源 id（第一个为主用）
+ * @param keepFirst   是否保留第一个为主用（否则需要手动指定 keepId）
+ */
+export function planDedupe(
+  resourceIds: string[],
+  keepId: string | undefined,
+  repoRoot: string
+): ApplyPlan[] {
+  const cache = loadCache();
+  const byId = new Map((cache?.resources ?? []).map((r) => [r.id, r]));
+  const keep = keepId ?? resourceIds[0];
+  const plans: ApplyPlan[] = [];
+
+  for (const id of resourceIds) {
+    const r = byId.get(id);
+    if (!r) continue;
+    if (id === keep) {
+      plans.push({
+        type: "dedupe-keep",
+        resourceId: id,
+        actions: [`保留 \`${r.name}\` (@${r.source}:${r.scope}) 为主用（active）`],
+      });
+    } else {
+      plans.push({
+        type: "dedupe-mark",
+        resourceId: id,
+        actions: [`将 \`${r.name}\` (@${r.source}:${r.scope}) 标记为 duplicate-of:${byId.get(keep)?.name ?? keep}（写入决策）`],
+      });
+    }
+  }
+  return plans;
+}
+
+/** 执行一键去重（确认后） */
+export function executeDedupe(
+  resourceIds: string[],
+  keepId: string | undefined,
+  repoRoot: string,
+  confirmed: boolean
+): { planned: ApplyPlan[]; executed?: boolean } {
+  const plans = planDedupe(resourceIds, keepId, repoRoot);
+  if (!confirmed) return { planned: plans };
+
+  const decisionsPath = join(repoRoot, "docs", "DECISIONS.md");
+  const date = new Date().toISOString().slice(0, 10);
+  const cache = loadCache();
+  const byId = new Map((cache?.resources ?? []).map((r) => [r.id, r]));
+  const keep = keepId ?? resourceIds[0];
+  const keepName = byId.get(keep)?.name ?? keep;
+
+  for (const id of resourceIds) {
+    const r = byId.get(id);
+    if (!r) continue;
+    if (id === keep) {
+      appendFileSync(decisionsPath, `\n- [${date}] \`${r.name}\` (@${r.source}:${r.scope}) -> active（去重保留主用）\n`);
+      if (cache) {
+        const t = cache.resources.find((x) => x.id === id);
+        if (t) t.status = "active";
+      }
+    } else {
+      appendFileSync(decisionsPath, `\n- [${date}] \`${r.name}\` (@${r.source}:${r.scope}) -> duplicate-of:${keepName}（一键去重）\n`);
+      if (cache) {
+        const t = cache.resources.find((x) => x.id === id);
+        if (t) { t.status = "duplicate-of"; t.duplicateOf = keepName; }
+      }
+    }
+  }
+  if (cache) saveCache(cache);
+  return { planned: plans, executed: true };
 }

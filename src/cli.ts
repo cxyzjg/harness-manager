@@ -128,6 +128,47 @@ async function main(): Promise<void> {
       }
       break;
     }
+    case "outcome": {
+      // hm outcome [sessionId]  — 评估单个或全部会话成效
+      const { evaluateAll, evaluateSession } = await import("./monitor/sessionOutcome.js");
+      const r = await ensureScan();
+      const id = args[0];
+      if (id) {
+        const s = r.sessions.find((x) => x.id.startsWith(id));
+        if (!s) return console.log(`未找到会话 ${id}`);
+        const o = evaluateSession(s);
+        if (useJson) return out(o);
+        printOutcome(o);
+      } else {
+        const all = evaluateAll(r.sessions);
+        if (useJson) return out(all);
+        console.log(`会话成效评估 (${all.length} 会话):`);
+        for (const o of all) {
+          const icon = o.level === "high" ? "🟢" : o.level === "medium" ? "🟡" : "🔴";
+          console.log(`${icon} ${String(o.score).padStart(3)} ${o.harness.padEnd(6)} ${o.sessionId.slice(0,20)} ${(o.project||"").slice(0,40)}`);
+        }
+        console.log("\n提示: hm outcome <sessionId> 查看单个会话详情");
+      }
+      break;
+    }
+    case "health": {
+      // hm health  — 技能健康监控报告
+      const { assessSkillHealth, healthSummary } = await import("./monitor/skillHealth.js");
+      const r = await ensureScan();
+      const health = assessSkillHealth(r.resources);
+      const sum = healthSummary(health);
+      if (useJson) return out({ health, summary: sum });
+      console.log(`技能健康监控 (${sum.total} 个技能):`);
+      console.log(`  🟢 健康 ${sum.byLevel.healthy}  |  🟡 需关注 ${sum.byLevel.attention}  |  🔴 风险 ${sum.byLevel.risk}\n`);
+      console.log("待维护动作:");
+      if (!sum.actions.length) console.log("  无，全部健康");
+      for (const a of sum.actions) console.log(`  • ${a}`);
+      console.log("\n风险技能详情:");
+      for (const h of health.filter((x) => x.level === "risk" || x.level === "attention").slice(0, 15)) {
+        console.log(`  [${h.score}] ${h.resource.name} (${h.resource.source}:${h.resource.scope}) — ${h.issues.join("; ") || "-"}`);
+      }
+      break;
+    }
     case "freq": {
       const r = await ensureScan();
       const all = r.sessions.flatMap((s) => s.tools);
@@ -227,9 +268,9 @@ async function main(): Promise<void> {
       const { planMutation, executeMutation, repoRoot } = await import("./apply.js");
       const op = args[0];
       const resourceId = args[1];
-      const reason = args[2];
+      const param = args.find((a) => a !== "-y" && a !== "--json") && args.filter((a) => a !== "-y" && a !== "--json")[2];
       if (!op || !resourceId) return console.log("用法: hm apply <enable|disable|move> <resourceId> [reason/target]");
-      const req = { type: op, resourceId, reason, target: reason };
+      const req = { type: op, resourceId, reason: param, target: param };
       // 先 dry-run
       const plan = planMutation(req as never, repoRoot);
       console.log("将执行:");
@@ -274,6 +315,8 @@ function helpText(): string {
   hm trend              token 趋势(按项目/模型)
   hm timeline <id>     会话时间线
   hm stats             上下文规模 + 工具统计 + CC慢调用
+  hm outcome [<id>]    会话成效评估(成效分/判断/建议)
+  hm health            技能健康监控报告
   hm apply <enable|disable|move> <id> [reason] [-y]   管理操作(dry-run→确认)
   hm deploy [repoPath] [repoUrl]   在新服务器快速部署(每机数据独立)
   hm serve             启动 Web 控制面 (localhost:8787)
@@ -287,6 +330,19 @@ function summarize(input: unknown): string {
   if (!s) return "";
   const oneLine = s.replace(/\s+/g, " ").trim();
   return oneLine.length > 90 ? oneLine.slice(0, 90) + "…" : oneLine;
+}
+
+/** 打印单个会话成效详情 */
+function printOutcome(o: { score: number; level: string; sessionId: string; project?: string; startedAt?: string; metrics: Record<string, unknown>; signals: string[]; suggestions: string[] }): void {
+  const icon = o.level === "high" ? "🟢" : o.level === "medium" ? "🟡" : "🔴";
+  console.log(`${icon} 会话成效: ${o.score} 分 (${o.level})`);
+  console.log(`  会话: ${o.sessionId}`);
+  console.log(`  项目: ${o.project ?? "-"}  开始: ${o.startedAt ?? "-"}`);
+  console.log(`  指标: 调用${String(o.metrics.toolCalls)} 消息${String(o.metrics.messageCount)} token${String(o.metrics.tokenTotal)} 写${String(o.metrics.writeActions)} 读${String(o.metrics.readActions)} 错${String(o.metrics.errors)} 重试${String(o.metrics.retries)}`);
+  console.log("  判断依据:");
+  o.signals.forEach((s) => console.log(`    • ${s}`));
+  console.log("  改进建议:");
+  o.suggestions.forEach((s) => console.log(`    • ${s}`));
 }
 
 main().catch((e) => {

@@ -7,13 +7,14 @@ export type HarnessId = "pi" | "claude" | "codex";
 
 export type ResourceKind = "skill" | "tool" | "extension" | "project-skill" | "prompt" | "theme";
 
-export type ResourceScope = "global" | "project" | "package";
+export type ResourceScope = "global" | "project" | "package" | "single-source";
 
 export type ResourceStatus =
   | "active"
   | "candidate"
   | "duplicate-of"
-  | "superseded-by";
+  | "superseded-by"
+  | "migrated";
 
 export interface HarnessResource {
   id: string; // 稳定 id: <harness>:<scope>:<name>
@@ -28,6 +29,7 @@ export interface HarnessResource {
   scene?: string; // 场景→技能映射
   duplicateOf?: string; // status=duplicate-of 时指向谁
   supersededBy?: string;
+  migratedTo?: string; // status=migrated 时指向单源位置
 }
 
 export interface ToolCall {

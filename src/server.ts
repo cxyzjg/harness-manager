@@ -20,7 +20,9 @@ import { loadCache, saveCache } from "./storage.js";
 import { detectDupes } from "./analysis/dedupe.js";
 import { aggregateTokens, contextStats, toolStats } from "./analysis/stats.js";
 import { buildCallTree } from "./analysis/calltree.js";
-import { planMutation, executeMutation, repoRoot, type ApplyRequest } from "./apply.js";
+import { planMutation, executeMutation, executeDedupe, repoRoot, type ApplyRequest } from "./apply.js";
+import { evaluateAll } from "./monitor/sessionOutcome.js";
+import { assessSkillHealth, healthSummary } from "./monitor/skillHealth.js";
 
 const htmlPath = join(repoRoot, "src", "web", "index.html");
 
@@ -79,6 +81,14 @@ const routes: Record<string, (url: URL) => Promise<unknown> | unknown> = {
       ? { cs: contextStats(cached.sessions), ts: toolStats(cached.sessions) }
       : {},
   "/api/memories": () => cached?.memories ?? [],
+  "/api/outcome": () => (cached ? evaluateAll(cached.sessions) : []),
+  "/api/health": () =>
+    cached
+      ? (() => {
+          const health = assessSkillHealth(cached.resources);
+          return { health, summary: healthSummary(health) };
+        })()
+      : { health: [], summary: null },
 };
 
 export function startServer(): void {
@@ -97,6 +107,28 @@ export function startServer(): void {
         const payload = JSON.parse(body) as { req: ApplyRequest; confirm?: boolean };
         const result = executeMutation(payload.req, repoRoot, payload.confirm === true);
         return json(res, result);
+      }
+
+      // POST /api/dedupe-apply — 一键去重（dry-run 或确认）
+      if (path === "/api/dedupe-apply" && req.method === "POST") {
+        let body = "";
+        for await (const chunk of req) body += chunk;
+        const payload = JSON.parse(body) as { ids: string[]; keepId?: string; confirm?: boolean };
+        if (!payload.ids?.length) return json(res, { error: "ids 为空" }, 400);
+        const result = executeDedupe(payload.ids, payload.keepId, repoRoot, payload.confirm === true);
+        return json(res, result);
+      }
+
+      // POST /api/batch-move — 一键迁移多个资源到单源（dry-run 或确认）
+      if (path === "/api/batch-move" && req.method === "POST") {
+        let body = "";
+        for await (const chunk of req) body += chunk;
+        const payload = JSON.parse(body) as { ids: string[]; confirm?: boolean };
+        if (!payload.ids?.length) return json(res, { error: "ids 为空" }, 400);
+        const plans = payload.ids.map((id) => planMutation({ type: "move", resourceId: id }, repoRoot));
+        if (payload.confirm !== true) return json(res, { planned: plans });
+        const results = payload.ids.map((id) => executeMutation({ type: "move", resourceId: id }, repoRoot, true));
+        return json(res, { planned: plans, executed: true, count: results.length });
       }
 
       if (path.startsWith("/api/")) {

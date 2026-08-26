@@ -56,6 +56,8 @@
   <button data-page="dedupe">去重候选</button>
   <button data-page="token">Token 趋势</button>
   <button data-page="stats">统计</button>
+  <button data-page="outcome">会话成效</button>
+  <button data-page="health">技能健康</button>
 </nav>
 <main id="main">
   <div class="cards" id="cards"></div>
@@ -65,9 +67,33 @@
 <script>
 const $ = (sel) => document.querySelector(sel);
 const api = async (p) => (await fetch(p)).json();
+const toast = (msg) => {
+  let el = document.getElementById("toast");
+  if (!el) {
+    el = document.createElement("div");
+    el.id = "toast";
+    el.style.cssText = "position:fixed;bottom:24px;right:24px;background:#2d333b;border:1px solid var(--line);color:var(--fg);padding:12px 18px;border-radius:10px;z-index:999;box-shadow:0 4px 16px rgba(0,0,0,.4);max-width:400px;font-size:13px";
+    document.body.appendChild(el);
+  }
+  el.textContent = msg;
+  el.style.display = "block";
+  clearTimeout(el._t);
+  el._t = setTimeout(() => (el.style.display = "none"), 5000);
+};
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
 const fmt = (n) => (n ?? 0).toLocaleString();
 const tag = (t) => `<span class="tag ${t}">${t}</span>`;
+const statusTag = (s, migratedTo) => {
+  const map = {
+    active: ["green", "active"],
+    candidate: ["yellow", "候选"],
+    "duplicate-of": ["red", "重复"],
+    "superseded-by": ["red", "被取代"],
+    migrated: ["green", `已迁→${esc(migratedTo || "单源")}`],
+  };
+  const [c, label] = map[s] || ["", s];
+  return `<span class="tag ${c}">${esc(label)}</span>`;
+};
 
 async function loadDashboard() {
   const d = await api("/api/dashboard");
@@ -89,19 +115,64 @@ async function loadDashboard() {
 async function loadResources() {
   const r = await api("/api/resources");
   const rows = r.map((x) => `<tr>
+    <td><input type="checkbox" class="res-sel" value="${esc(x.id)}"></td>
     <td>${esc(x.name)}</td>
     <td>${tag(x.kind)}</td>
     <td>${esc(x.source)}:${esc(x.scope)}</td>
-    <td>${esc(x.status)}</td>
+    <td>${statusTag(x.status, x.migratedTo)}</td>
     <td class="muted">${esc((x.description||"").slice(0,60))}</td>
     <td>
-      <button class="op" data-id="${esc(x.id)}" data-name="${esc(x.name)}" onclick="applyRes('disable',this)">停用</button>
-      <button class="op" data-id="${esc(x.id)}" data-name="${esc(x.name)}" onclick="applyRes('enable',this)">启用</button>
-      <button class="op" data-id="${esc(x.id)}" data-name="${esc(x.name)}" onclick="applyRes('move',this)">迁单源</button>
+      <button class="op" data-id="${esc(x.id)}" data-name="${esc(x.name)}" title="标记为重复/被取代(记录决策)" onclick="applyRes('disable',this)">停用</button>
+      <button class="op" data-id="${esc(x.id)}" data-name="${esc(x.name)}" title="恢复为正常使用" onclick="applyRes('enable',this)">启用</button>
+      <button class="op" data-id="${esc(x.id)}" data-name="${esc(x.name)}" title="复制到仓库 skills/ 供多端共享" onclick="applyRes('move',this)">迁单源</button>
     </td>
   </tr>`).join("");
   $("#content").innerHTML = `<div class="panel"><h2>资源清单 (${r.length})</h2>
-    <table><thead><tr><th>名称</th><th>类型</th><th>来源:归属</th><th>状态</th><th>描述</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+    <div style="margin:8px 0;display:flex;gap:8px;align-items:center">
+      <button class="op" onclick="toggleSel()">全选</button>
+      <button class="op" onclick="batchMove()">⬆ 一键迁移选中到单源</button>
+      <button class="op" onclick="batchDisable()">⛔ 批量停用选中</button>
+      <span class="muted" style="font-size:12px" id="sel-count">已选 0</span>
+    </div>
+    <table><thead><tr><th></th><th>名称</th><th>类型</th><th>来源:归属</th><th>状态</th><th>描述</th><th>操作</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+}
+
+function selectedIds() {
+  return [...document.querySelectorAll(".res-sel:checked")].map((el) => el.value);
+}
+
+function toggleSel() {
+  const all = document.querySelectorAll(".res-sel");
+  const any = [...all].some((el) => el.checked);
+  all.forEach((el) => (el.checked = !any));
+  document.getElementById("sel-count").textContent = `已选 ${selectedIds().length}`;
+}
+
+async function batchMove() {
+  const ids = selectedIds();
+  if (!ids.length) return toast("请先勾选要迁移的资源");
+  const plan = await fetch("/api/batch-move", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ids }) }).then((r) => r.json());
+  const n = (plan.planned || []).length;
+  if (!confirm(`将把 ${n} 个资源复制到单源目录 skills/（源保留）。\n\n确认批量迁移?`)) return;
+  await fetch("/api/batch-move", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ids, confirm: true }) });
+  toast(`✓ 已迁移 ${n} 个资源到单源`);
+  loadResources();
+}
+
+async function batchDisable() {
+  const ids = selectedIds();
+  if (!ids.length) return toast("请先勾选要停用的资源");
+  const reason = prompt("批量停用理由? (duplicate-of:xxx / superseded-by:xxx)") || "batch-disable";
+  for (const id of ids) {
+    const plan = await fetch("/api/apply", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ req: { type: "disable", resourceId: id, reason } }) }).then((r) => r.json());
+    if (!plan.planned?.[0]?.actions) continue;
+  }
+  if (!confirm(`将标记 ${ids.length} 个资源为停用(重复/被取代)。确认?`)) return;
+  for (const id of ids) {
+    await fetch("/api/apply", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ req: { type: "disable", resourceId: id, reason }, confirm: true }) });
+  }
+  toast(`✓ 已停用 ${ids.length} 个资源`);
+  loadResources();
 }
 
 async function loadSessions() {
@@ -150,10 +221,48 @@ function renderTreeText(nodes, depth) {
 
 async function loadDedupe() {
   const d = await api("/api/dedupe");
-  const groups = d.map((g) => `<div class="panel"><h2>${g.kind === "same-name" ? "同名" : "功能重叠"}</h2>
-    <p class="muted">${esc(g.reason)}</p>
-    <div class="mono" style="margin-top:8px">${g.names.map(esc).join("<br>")}</div></div>`).join("");
-  $("#content").innerHTML = groups || `<p class="muted">未发现去重候选</p>`;
+  const resources = await api("/api/resources");
+  // name@source → resource id（用于一键去重）
+  const idOf = (ns) => {
+    const [name, srcScope] = ns.split("@");
+    const [source, scope] = (srcScope || "").split(":");
+    const hit = resources.find((r) => r.name === name && r.source === source && (r.scope === scope || !scope));
+    return hit ? hit.id : null;
+  };
+  const groups = d.map((g, gi) => {
+    const ids = g.names.map(idOf).filter(Boolean);
+    const keepSel = g.names.map((n) => {
+      const id = idOf(n);
+      return `<label style="display:block;margin:2px 0"><input type="radio" name="keep-${gi}" value="${esc(id)}" ${gi === 0 ? "checked" : ""}> ${esc(n)}</label>`;
+    }).join("");
+    return `<div class="panel"><h2>${g.kind === "same-name" ? "同名冲突" : "功能重叠"} — ${esc(g.reason)}</h2>
+      <div style="margin:8px 0">${g.names.map((n) => `<span class="tag yellow" style="margin-right:6px">${esc(n)}</span>`).join("")}</div>
+      <div style="flex:1"><b class="muted">保留为主用:</b>${keepSel}</div>
+      <button class="op" style="margin-top:10px;padding:6px 14px" onclick="dedupeGroup(${gi})">⚡ 一键去重这组</button>
+    </div>`;
+  });
+  $("#content").innerHTML = `<p class="muted" style="margin-bottom:10px">选中每组的“主用”技能，点击一键去重：自动保留主用 + 将其他标记为重复 + 写决策记录。</p>` + (groups.join("") || `<p class="muted">未发现去重候选</p>`);
+}
+
+async function dedupeGroup(gi) {
+  const d = await api("/api/dedupe");
+  const resources = await api("/api/resources");
+  const idOf = (ns) => {
+    const [name, srcScope] = ns.split("@");
+    const [source, scope] = (srcScope || "").split(":");
+    const hit = resources.find((r) => r.name === name && r.source === source && (r.scope === scope || !scope));
+    return hit ? hit.id : null;
+  };
+  const g = d[gi];
+  const ids = g.names.map(idOf).filter(Boolean);
+  const keepId = document.querySelector(`input[name="keep-${gi}"]:checked`)?.value;
+  // dry-run
+  const plan = await fetch("/api/dedupe-apply", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ids, keepId }) }).then((r) => r.json());
+  const actions = (plan.planned || []).map((p) => p.actions.map((a) => "  • " + a).join("\n")).join("\n");
+  if (!confirm(`一键去重将执行:\n${actions}\n\n确认?`)) return;
+  await fetch("/api/dedupe-apply", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ids, keepId, confirm: true }) });
+  toast("✓ 去重完成，已写决策记录");
+  loadDedupe();
 }
 
 async function loadToken() {
@@ -189,19 +298,64 @@ async function loadStats() {
     </div>`;
 }
 
-const pages = { dashboard: loadDashboard, resources: loadResources, sessions: loadSessions, dedupe: loadDedupe, token: loadToken, stats: loadStats };
+const pages = { dashboard: loadDashboard, resources: loadResources, sessions: loadSessions, dedupe: loadDedupe, token: loadToken, stats: loadStats, outcome: loadOutcome, health: loadHealth };
+
+async function loadOutcome() {
+  const o = await api("/api/outcome");
+  const rows = o.map((x) => `<tr>
+    <td>${x.level === "high" ? "🟢" : x.level === "medium" ? "🟡" : "🔴"} <b>${x.score}</b></td>
+    <td>${esc(x.harness)}</td>
+    <td><a href="#" onclick="showSession('${esc(x.sessionId)}');return false;" class="mono">${esc(x.sessionId.slice(0,20))}</a></td>
+    <td class="muted">${esc((x.startedAt||"").slice(0,10))}</td>
+    <td class="muted">${esc((x.project||"").slice(0,40))}</td>
+    <td>${x.metrics.toolCalls}调/${x.metrics.messageCount}msg/tok${fmt(x.metrics.tokenTotal)}/写${x.metrics.writeActions}/错${x.metrics.errors}/重${x.metrics.retries}</td>
+    <td class="muted">${esc(x.signals.slice(0,2).join("; "))}</td>
+  </tr>`).join("");
+  const high = o.filter((x) => x.level === "high").length;
+  const med = o.filter((x) => x.level === "medium").length;
+  const low = o.filter((x) => x.level === "low").length;
+  $("#content").innerHTML = `<div class="panel"><h2>会话成效评估 (${o.length})</h2>
+    <p class="muted">🟢 高 ${high} · 🟡 中 ${med} · 🔴 低 ${low} — 点击会话 id 查看调用链</p>
+    <table><thead><tr><th>分</th><th>harness</th><th>会话</th><th>日期</th><th>项目</th><th>指标</th><th>判断</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+}
+
+async function loadHealth() {
+  const d = await api("/api/health");
+  const h = d.health || [];
+  const s = d.summary || {};
+  const rows = h.map((x) => `<tr>
+    <td>${x.level === "healthy" ? "🟢" : x.level === "attention" ? "🟡" : "🔴"} <b>${x.score}</b></td>
+    <td>${esc(x.resource.name)}</td>
+    <td>${esc(x.resource.source)}:${esc(x.resource.scope)}</td>
+    <td>${esc(x.resource.status)}</td>
+    <td class="muted">${esc(x.issues.join("; ") || "-")}</td>
+    <td class="muted">${esc(x.actions.join("; ") || "-")}</td>
+  </tr>`).join("");
+  $("#content").innerHTML = `<div class="panel"><h2>技能健康监控 (${h.length})</h2>
+    <p class="muted">🟢 健康 ${s.byLevel?.healthy ?? 0} · 🟡 需关注 ${s.byLevel?.attention ?? 0} · 🔴 风险 ${s.byLevel?.risk ?? 0}</p>
+    <table><thead><tr><th>健康分</th><th>技能</th><th>来源</th><th>状态</th><th>问题</th><th>维护建议</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+}
 
 async function applyRes(type, btn) {
   const id = btn.dataset.id, name = btn.dataset.name;
+  const labels = {
+    disable: `停用 \`${name}\` = 标记为重复/被取代（记录决策，不删文件）`,
+    enable: `启用 \`${name}\` = 恢复为正常使用(active)`,
+    move: `迁单源 \`${name}\` = 复制到仓库 skills/ 供多端共享（源保留）`,
+  };
   const reason = type === "disable" ? (prompt(`停用 ${name}，理由? (duplicate-of:xxx / superseded-by:xxx)`) || "duplicate/superseded") : undefined;
   // 1) dry-run
   const plan = await fetch("/api/apply", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ req: { type, resourceId: id, reason, target: name } }) }).then((r) => r.json());
   const actions = plan.planned?.[0]?.actions || [];
-  const msg = `将执行:\n${actions.map((a) => "  • " + a).join("\n")}\n\n确认执行?`;
+  const msg = `${labels[type]}\n\n将执行:\n${actions.map((a) => "  • " + a).join("\n")}\n\n确认执行?`;
   if (!confirm(msg)) return;
   // 2) 确认执行
-  await fetch("/api/apply", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ req: { type, resourceId: id, reason, target: name }, confirm: true }) });
-  alert("已执行");
+  const res = await fetch("/api/apply", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ req: { type, resourceId: id, reason, target: name }, confirm: true }) }).then((r) => r.json());
+  if (res.executed) {
+    toast(type === "disable" ? `✓ 已停用 ${name}（写决策+标记状态）` : type === "enable" ? `✓ 已启用 ${name}` : `✓ 已迁移 ${name} 到单源`);
+  } else {
+    toast("✗ 操作未执行");
+  }
   loadResources();
 }
 
