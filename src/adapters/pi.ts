@@ -12,6 +12,7 @@ import type {
   Session,
   MemoryFile,
   ToolCall,
+  Thinking,
 } from "../types.js";
 import type { Adapter, AdapterContext } from "./base.js";
 
@@ -199,6 +200,7 @@ export function parsePiSession(path: string): Session | null {
   try {
     const lines = readFileSync(path, "utf-8").split("\n").filter(Boolean);
     const tools: ToolCall[] = [];
+    const thinkings: Thinking[] = [];
     let messages = 0;
     let cwd = "";
     let startedAt: string | undefined;
@@ -224,6 +226,25 @@ export function parsePiSession(path: string): Session | null {
         const content = ev.message?.content;
         // tool 调用可能内嵌在 assistant message 的 content 里
         if (Array.isArray(content)) {
+          // 先提取本条 message 的 thinking（在 toolCall 之前）
+          let batchThinking: string | undefined;
+          const toolIds: string[] = [];
+          for (const c of content) {
+            const ctype = c && (c as { type?: string }).type;
+            if (ctype === "thinking") {
+              const th = (c as { thinking?: string }).thinking;
+              if (th) batchThinking = th;
+            }
+            if (ctype === "toolCall") {
+              const tc = c as { id?: string };
+              if (tc.id) toolIds.push(tc.id);
+            }
+          }
+          // 记录 thinking 片段（若存在）
+          if (batchThinking) {
+            thinkings.push({ content: batchThinking, timestamp: ev.timestamp, followedByToolIds: toolIds });
+          }
+          // 推入 toolCall，带上本条 thinking
           for (const c of content) {
             if (c && (c as { type?: string }).type === "toolCall") {
               const tc = c as { id?: string; name?: string; input?: unknown; arguments?: unknown };
@@ -233,6 +254,7 @@ export function parsePiSession(path: string): Session | null {
                 name: tc.name ?? "unknown",
                 input: tc.arguments ?? tc.input,
                 startedAt: ev.timestamp,
+                thinking: batchThinking,
               });
             }
           }
@@ -266,6 +288,7 @@ export function parsePiSession(path: string): Session | null {
         ? { input: tokenIn, output: tokenOut, total: tokenIn + tokenOut }
         : undefined,
       tools,
+      thinkings: thinkings.length ? thinkings : undefined,
     };
   } catch {
     return null;

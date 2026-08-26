@@ -42,6 +42,7 @@ npm run hm -- scan     # 扫描 pi/CC/Codex 三端数据并缓存
 npm run hm -- resources   # 列出资源 (skills/工具/扩展)
 npm run hm -- sessions    # 列出会话
 npm run hm -- trace <id>  # 显示某会话调用链树
+npm run hm -- story <id>  # 执行轨迹+思考过程(完整追溯)
 npm run hm -- slowest     # 最慢调用 Top10
 npm run hm -- token       # token 聚合
 npm run hm -- dedupe      # 去重候选（同名 + 功能重叠）

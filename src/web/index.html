@@ -39,6 +39,7 @@
   .error { color:var(--red); }
   .op { background:#242933; border:1px solid var(--line); color:var(--fg); padding:3px 8px; border-radius:6px; font-size:11px; cursor:pointer; margin-right:4px; }
   .op:hover { border-color:var(--accent); color:var(--accent); }
+  .active-tab { border-color:var(--accent) !important; color:var(--accent) !important; }
   a { color:var(--accent); text-decoration:none; }
   .row { display:flex; gap:12px; flex-wrap:wrap; }
   .row > .panel { flex:1; min-width:280px; }
@@ -197,14 +198,42 @@ async function showSession(id) {
   try {
     treeTxt = renderTreeText(s.tree, 0);
   } catch { treeTxt = s.tools.map((t,i) => `${i+1}. ${t.name}`).join("\n"); }
+  cachedSessionTree[id] = treeTxt;
   $("#content").innerHTML = `
     <button onclick="loadSessions()" style="background:none;border:none;color:var(--accent);cursor:pointer;margin-bottom:10px">← 返回</button>
     <div class="panel"><h2>会话 ${esc(s.id)}</h2>
       <p class="muted">${esc(s.harness)} · ${esc(s.cwd)} · ${s.messages} 消息 · ${s.tools.length} 次工具调用${s.tokenUsage ? " · token " + fmt(s.tokenUsage.total) : ""}</p>
-      <h2 style="margin-top:14px">调用链</h2>
-      <div class="trace">${esc(treeTxt)}</div>
+      <div style="display:flex;gap:8px;margin:10px 0">
+        <button class="op active-tab" id="tab-story" onclick="showStory('${esc(s.id)}')">🧠 执行轨迹+思考</button>
+        <button class="op" id="tab-tree" onclick="showTree('${esc(s.id)}')">🔗 调用链</button>
+      </div>
+      <div id="session-view"><div class="trace">${esc(treeTxt)}</div></div>
     </div>`;
 }
+
+async function showStory(id) {
+  document.getElementById("tab-story").classList.add("active-tab");
+  document.getElementById("tab-tree").classList.remove("active-tab");
+  const d = await api("/api/sessions/" + encodeURIComponent(id) + "/story");
+  const story = d.story || [];
+  const html = story.map((n) => {
+    if (n.kind === "thinking") {
+      return `<div style="margin:8px 0;padding:8px 12px;border-left:3px solid var(--yellow);background:#1b1f27;border-radius:6px"><div class="muted" style="font-size:11px">💭 思考</div><div style="font-size:13px;line-height:1.6;color:#d8c48a">${esc(n.detail)}</div></div>`;
+    }
+    const kids = (n.children || []).map((c) => `    <div style="color:var(--muted);font-size:12px">└─ ${esc(c.label)} ${esc(c.toolInput||"")}</div>`).join("");
+    const out = n.toolOutput ? `<div class="muted" style="font-size:11px;margin-left:16px">↩ ${esc(n.toolOutput)}</div>` : "";
+    return `<div style="margin:4px 0"><span style="color:var(--accent)">🛠 ${esc(n.label)}</span> ${esc(n.toolInput||"")}${kids}${out}</div>`;
+  }).join("");
+  document.getElementById("session-view").innerHTML = `<div style="max-height:70vh;overflow:auto">${html || "<p class='muted'>无轨迹数据</p>"}</div>`;
+}
+
+function showTree(id) {
+  document.getElementById("tab-story").classList.remove("active-tab");
+  document.getElementById("tab-tree").classList.add("active-tab");
+  document.getElementById("session-view").innerHTML = `<div class="trace">${esc(cachedSessionTree[id] || "（无调用）")}</div>`;
+}
+
+const cachedSessionTree = {};
 
 function renderTreeText(nodes, depth) {
   if (!nodes?.length) return "（无调用）";

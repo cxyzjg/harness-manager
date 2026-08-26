@@ -91,6 +91,21 @@ async function main(): Promise<void> {
       }
       break;
     }
+    case "story": {
+      // hm story <id> — 执行轨迹 + 思考过程
+      const { buildStory, renderStory } = await import("./analysis/story.js");
+      const id = args[0];
+      if (!id) return console.log("用法: hm story <session-id>  (执行轨迹+思考过程)");
+      const r = await ensureScan();
+      const s = r.sessions.find((x) => x.id.startsWith(id));
+      if (!s) return console.log(`未找到会话 ${id}`);
+      const story = buildStory(s);
+      if (useJson) return out(story);
+      const thinkCount = story.filter((n) => n.kind === "thinking").length;
+      console.log(`会话 ${s.id} 执行轨迹 (${s.tools.length} 次调用, ${thinkCount} 段思考):`);
+      console.log(renderStory(story));
+      break;
+    }
     case "slowest": {
       const r = await ensureScan();
       const all = r.sessions.flatMap((s) => s.tools);
@@ -306,6 +321,7 @@ function helpText(): string {
   hm resources         列出资源 (skills/工具/扩展)
   hm sessions          列出会话
   hm trace <id>        显示会话调用链树
+  hm story <id>        执行轨迹 + 思考过程(完整追溯)
   hm slowest           最慢调用 Top10
   hm token             token 聚合
   hm dedupe            去重候选

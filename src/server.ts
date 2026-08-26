@@ -133,6 +133,14 @@ export function startServer(): void {
 
       if (path.startsWith("/api/")) {
         await ensureData();
+        // 会话执行轨迹 + 思考
+        const sm = path.match(/^\/api\/sessions\/(.+)\/story$/);
+        if (sm) {
+          const detail = sessionDetail(decodeURIComponent(sm[1]));
+          if (!detail) return json(res, { error: "not found" }, 404);
+          const { buildStory } = await import("./analysis/story.js");
+          return json(res, { id: detail.id, story: buildStory(detail) });
+        }
         // 会话详情
         const m = path.match(/^\/api\/sessions\/(.+)$/);
         if (m) {

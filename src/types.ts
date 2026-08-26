@@ -43,6 +43,16 @@ export interface ToolCall {
   durationMs?: number;
   tokens?: number;
   error?: string;
+  /** 本次工具调用前的思考过程（如果记录了） */
+  thinking?: string;
+}
+
+/** 思考片段：assistant 在工具调用前的推理 */
+export interface Thinking {
+  content: string;
+  timestamp?: string;
+  /** 紧随其后的一批工具调用 id */
+  followedByToolIds?: string[];
 }
 
 export interface Session {
@@ -54,6 +64,8 @@ export interface Session {
   messages: number;
   tokenUsage?: { input: number; output: number; total: number };
   tools: ToolCall[];
+  /** 思考过程序列（执行轨迹的"为什么"） */
+  thinkings?: Thinking[];
 }
 
 export interface MemoryFile {
