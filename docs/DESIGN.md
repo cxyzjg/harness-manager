@@ -153,7 +153,7 @@ pi、Claude Code、Codex 等 AI agent 工具的 skills、工具、扩展、会�
 - [x] 脚本（scan/apply/fleet，只读 + dry-run 变更）
 - [x] pi 包安装（本地路径）
 - [x] **M1 数据层 + CLI**：三端适配器、统一 Schema、调用链重建、token 聚合、去重候选、记忆读取；`hm` 子命令（scan/resources/sessions/trace/slowest/token/dedupe/memories/freq）；8 个单元测试；tsc 编译通过
-- [ ] M2 分析层（调用链可视化增强、慢调用定位、压缩点）
+- [x] **M2 分析层**：会话检索(search)、token 趋势(trend)、时间线(timeline)、上下文规模+工具统计+CC慢调用(stats)；CC 会话 durationMs 计算；cwd 反推修复；17 个单元测试
 - [ ] M3 服务与 Web 展示（本地 HTTP + 可视化页面）
 - [ ] M4 管理操作（启停/迁移/接线，dry-run + 确认）
 - [ ] M5 多机（fleet 汇总 + 差异对比）

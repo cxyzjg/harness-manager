@@ -47,6 +47,10 @@ npm run hm -- token       # token 聚合
 npm run hm -- dedupe      # 去重候选（同名 + 功能重叠）
 npm run hm -- memories    # 记忆/规范文件
 npm run hm -- freq        # 工具调用频率
+npm run hm -- search --project hb-ultra --query xxx   # 会话检索
+npm run hm -- trend      # token 趋势(按项目/模型)
+npm run hm -- timeline <id>   # 会话时间线
+npm run hm -- stats      # 上下文规模 + 工具统计
 npx vitest run            # 跑测试
 ```
 

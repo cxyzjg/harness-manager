@@ -67,6 +67,27 @@ export class ClaudeAdapter implements Adapter {
     return [...new Set(found)];
   }
 
+  /** 把 CC projects 目录名映射回真实项目路径（匹配 trust 项目） */
+  private matchProjectCwd(pdir: string): string {
+    const projs = this.projectPathsSafe();
+    // CC 目录名: 全路径连字符化（`\`,`_`→`-`, 去标点）
+    const norm = (p: string): string =>
+      p.replace(/\\/g, "-").replace(/_/g, "-").replace(/[/:]/g, "-").replace(/-+/g, "-");
+    for (const proj of projs) {
+      if (norm(proj).toLowerCase() === pdir.toLowerCase()) return proj;
+    }
+    // 降级: 默认反推
+    return pdir.replace(/^C--/, "C:\\").replace(/--/g, "\\").replace(/-/g, "_");
+  }
+
+  private projectPathsSafe(): string[] {
+    try {
+      return this.projectPaths({ home: process.env.HOME ?? process.env.USERPROFILE ?? "" });
+    } catch {
+      return [];
+    }
+  }
+
   async readResources(ctx: AdapterContext): Promise<HarnessResource[]> {
     const out: HarnessResource[] = [];
     const claude = this.claudeDir(ctx);
@@ -125,7 +146,8 @@ export class ClaudeAdapter implements Adapter {
     for (const pdir of readdirSync(projects)) {
       const full = join(projects, pdir);
       if (!statSync(full).isDirectory()) continue;
-      const real = pdir.replace(/--/g, "\\").replace(/^C\\/, "C:\\");
+      // 用 trust 项目路径匹配更准确的 cwd（CC 目录名 `_`/`\`→`-` 不可逆）
+      const real = this.matchProjectCwd(pdir);
       for (const f of readdirSync(full)) {
         if (!f.endsWith(".jsonl")) continue;
         const s = parseCcSession(join(full, f), real);
@@ -211,11 +233,16 @@ export function parseCcSession(path: string, cwdGuess: string): Session | null {
           startedAt: ev.timestamp,
         });
       } else if (ev.type === "tool_result") {
-        // 关联结果到已存在调用（同 id）
+        // 关联结果到已存在调用（同 id），用时间差估算耗时
         const t = tools.find((x) => x.id === ev.tool_use_id);
         if (t) {
           t.output = ev.input;
           t.endedAt = ev.timestamp;
+          if (t.startedAt && ev.timestamp) {
+            const d =
+              new Date(ev.timestamp).getTime() - new Date(t.startedAt).getTime();
+            if (!Number.isNaN(d) && d >= 0) t.durationMs = d;
+          }
         }
       }
     }

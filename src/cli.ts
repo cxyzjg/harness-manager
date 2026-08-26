@@ -16,6 +16,7 @@ import { scan } from "./orchestrator.js";
 import { loadCache, saveCache } from "./storage.js";
 import { buildCallTree, renderTree, slowestCalls, toolFrequency } from "./analysis/calltree.js";
 import { detectDupes } from "./analysis/dedupe.js";
+import { filterSessions, aggregateTokens, buildTimeline, contextStats, toolStats } from "./analysis/stats.js";
 import type { ScanResult } from "./types.js";
 
 const [, , cmd, ...args] = process.argv;
@@ -137,6 +138,71 @@ async function main(): Promise<void> {
       }
       break;
     }
+    case "search": {
+      // hm search [--harness pi] [--project xxx] [--query xxx] [--since 2026-08-01]
+      const r = await ensureScan();
+      const opts: Record<string, string> = {};
+      for (let i = 0; i < args.length; i++) {
+        if (args[i].startsWith("--")) opts[args[i].slice(2)] = args[i + 1] ?? "";
+      }
+      const hits = filterSessions(r.sessions, {
+        harness: opts.harness,
+        project: opts.project,
+        query: opts.query,
+        since: opts.since,
+      });
+      if (useJson) return out(hits);
+      console.log(`命中 ${hits.length} 个会话:`);
+      for (const s of hits) {
+        console.log(`  ${s.harness} ${s.id.slice(0, 20)} ${s.startedAt ?? "?"} msg=${s.messages} tools=${s.tools.length} ${s.cwd}`);
+      }
+      break;
+    }
+    case "trend": {
+      const r = await ensureScan();
+      const agg = aggregateTokens(r.sessions);
+      if (useJson) return out(agg);
+      console.log(`token 总量: in=${agg.totalInput} out=${agg.totalOutput} total=${agg.total}`);
+      console.log("\n按项目:");
+      for (const [k, v] of Object.entries(agg.byProject).sort((a, b) => b[1].input - a[1].input)) {
+        console.log(`  ${k}: ${v.sessions}会话 in=${v.input} out=${v.output}`);
+      }
+      console.log("\n按模型:");
+      for (const [k, v] of Object.entries(agg.byModel).sort((a, b) => b[1].input - a[1].input)) {
+        console.log(`  ${k}: ${v.sessions}会话 in=${v.input} out=${v.output}`);
+      }
+      break;
+    }
+    case "timeline": {
+      const id = args[0];
+      if (!id) return console.log("用法: hm timeline <session-id>");
+      const r = await ensureScan();
+      const s = r.sessions.find((x) => x.id.startsWith(id));
+      if (!s) return console.log(`未找到会话 ${id}`);
+      const tl = buildTimeline(s);
+      for (const e of tl) {
+        const ts = e.ts ? new Date(e.ts).toISOString().slice(11, 19) : "      ";
+        const tag = e.kind === "tool" ? `[${e.toolName}]` : `[msg:${e.role ?? ""}]`;
+        console.log(`${ts} ${tag.padEnd(14)} ${e.summary}`);
+      }
+      break;
+    }
+    case "stats": {
+      const r = await ensureScan();
+      const cs = contextStats(r.sessions);
+      const ts = toolStats(r.sessions);
+      if (useJson) return out({ cs, ts });
+      console.log(`上下文规模: ${cs.totalSessions}会话 ${cs.totalMessages}消息 平均${cs.avgMessagesPerSession}消息/会话 估算token≈${cs.estimatedTotalTokens}`);
+      console.log("\n大会话 Top5:");
+      for (const s of cs.largeSessions) console.log(`  ${s.messages} 消息 ${s.id.slice(0, 20)} ${s.cwd}`);
+      console.log("\n工具调用 Top10:");
+      for (const t of ts.topTools.slice(0, 10)) console.log(`  ${t.count}\t${t.name}`);
+      if (ts.slowestInCc.length) {
+        console.log("\nCC 慢调用(>1s) Top5:");
+        for (const t of ts.slowestInCc.slice(0, 5)) console.log(`  ${t.durationMs}ms ${t.name} ${summarize(t.input)}`);
+      }
+      break;
+    }
     case "serve":
       console.log("M3 Web 服务尚未实现；先使用 hm scan/list/trace/token/dedupe");
       break;
@@ -159,6 +225,10 @@ function helpText(): string {
   hm dedupe            去重候选
   hm memories          记忆/规范文件
   hm freq              工具调用频率
+  hm search [--project] [--query] [--harness] [--since]   会话检索
+  hm trend              token 趋势(按项目/模型)
+  hm timeline <id>     会话时间线
+  hm stats             上下文规模 + 工具统计 + CC慢调用
   hm serve             启动 Web 服务 (M3, 未实现)
 `;
 }
