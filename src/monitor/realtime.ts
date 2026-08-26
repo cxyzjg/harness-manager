@@ -13,12 +13,14 @@ import { homedir } from "node:os";
 
 export interface LiveEvent {
   ts: string;
-  type: "tool_call" | "session_start" | "session_shutdown";
+  type: "tool_call" | "session_start" | "session_shutdown" | "skill_trigger";
   toolName?: string;
   input?: unknown;
   sessionId?: string;
   cwd?: string;
   reason?: string;
+  skills?: string[];
+  prompt?: string;
 }
 
 export interface LiveSnapshot {

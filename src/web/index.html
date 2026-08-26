@@ -53,13 +53,12 @@
 <nav id="nav">
   <button data-page="dashboard" class="active">仪表盘</button>
   <button data-page="resources">资源</button>
-  <button data-page="sessions">会话</button>
+  <button data-page="hub">会话中心</button>
   <button data-page="dedupe">去重候选</button>
   <button data-page="token">Token 趋势</button>
   <button data-page="stats">统计</button>
-  <button data-page="outcome">会话成效</button>
   <button data-page="health">技能健康</button>
-  <button data-page="live">实时</button>
+  <button data-page="usage">技能触发</button>
 </nav>
 <main id="main">
   <div class="cards" id="cards"></div>
@@ -383,7 +382,57 @@ async function loadStats() {
     </div>`;
 }
 
-const pages = { dashboard: loadDashboard, resources: loadResources, sessions: loadSessions, dedupe: loadDedupe, token: loadToken, stats: loadStats, outcome: loadOutcome, health: loadHealth, live: loadLive };
+const pages = { dashboard: loadDashboard, resources: loadResources, hub: loadHub, dedupe: loadDedupe, token: loadToken, stats: loadStats, health: loadHealth, usage: loadUsage };
+
+async function loadHub() {
+  const h = await api("/api/hub");
+  if (!h) { $("#content").innerHTML = `<p class="muted">无数据</p>`; return; }
+  // 顶部：实时 + 成效概览
+  const sum = h.summary || {};
+  const cards = [
+    { n: sum.totalSessions, l: "总会话" },
+    { n: fmt(sum.totalTools), l: "总工具调用" },
+    { n: fmt(sum.totalTokens), l: "总 token" },
+    { n: sum.highOutcome, l: "🟢 高成效" },
+    { n: sum.mediumOutcome, l: "🟡 中成效" },
+    { n: sum.lowOutcome, l: "🔴 低成效" },
+  ].map((c) => `<div class="card"><div class="num">${c.n}</div><div class="label">${c.l}</div></div>`).join("");
+  const live = h.live || {};
+  const liveBar = Object.entries(live.window1h?.byTool || {}).sort((a, b) => b[1] - a[1]).slice(0, 6).map(([k, v]) => `<span class="tag" style="margin-right:6px">${esc(k)}×${v}</span>`).join("");
+  // 会话表格（带成效 + 思考数）
+  const rows = (h.sessions || []).slice(0, 50).map((s) => `<tr>
+    <td>${s.outcome ? (s.outcome.level === "high" ? "🟢" : s.outcome.level === "medium" ? "🟡" : "🔴") + " " + s.outcome.score : "—"}</td>
+    <td><a href="#" onclick="showSession('${esc(s.id)}');return false;" class="mono">${esc(s.id.slice(0, 18))}</a></td>
+    <td>${esc(s.harness)}</td>
+    <td>${esc((s.startedAt || "").slice(0, 10))}</td>
+    <td>${s.messages}</td>
+    <td>${s.tools.length}</td>
+    <td>${s.storyCount || 0}🧠</td>
+    <td class="muted">${esc((s.cwd || "").slice(0, 35))}</td>
+  </tr>`).join("");
+  $("#content").innerHTML = `
+    <div class="cards">${cards}</div>
+    <div class="panel"><h2>⚡ 实时 (最近1h)</h2><p>${liveBar || '<span class="muted">暂无</span>'}</p></div>
+    <div class="panel"><h2>会话列表（含成效/思考，点击查看轨迹）</h2>
+      <table><thead><tr><th>成效</th><th>id</th><th>harness</th><th>日期</th><th>消息</th><th>工具</th><th>思考</th><th>项目</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+  // 每 5 秒刷新实时部分
+  setTimeout(() => { if (document.querySelector("nav button.active")?.dataset.page === "hub") loadHub(); }, 5000);
+}
+
+async function loadUsage() {
+  const u = await api("/api/usage");
+  const topSkill = Object.entries(u.bySkill || {}).sort((a, b) => b[1] - a[1]).slice(0, 20);
+  const max = Math.max(1, ...topSkill.map(([, v]) => v));
+  const bars = topSkill.map(([k, v]) => `<div style="margin:6px 0"><span>${esc(k)}</span> <span class="muted">×${v}</span>
+    <div class="bar"><div style="width:${(v / max * 100).toFixed(1)}%"></div></div></div>`).join("");
+  const recent = (u.recent || []).slice(0, 15).map((t) => `<div style="margin:3px 0"><span class="muted">${esc((t.ts||"").slice(11,19))}</span> [${esc((t.skills||[]).join(","))}] <span class="muted">@ ${esc((t.cwd||"").slice(0,40))}</span></div>`).join("");
+  $("#content").innerHTML = `
+    <div class="row">
+      <div class="panel"><h2>技能触发统计 (${u.totalTriggers || 0})</h2>${bars || '<p class="muted">暂无触发记录。重启 pi 会话后 extension 会记录每个回合加载的技能。</p>'}</div>
+      <div class="panel"><h2>按项目</h2>${Object.entries(u.byProject || {}).sort((a,b)=>b[1]-a[1]).map(([k,v]) => `<div>${esc(k)}: <b>${v}</b></div>`).join("") || '<p class="muted">无</p>'}</div>
+    </div>
+    <div class="panel"><h2>最近触发记录（时间/技能/项目）</h2>${recent || '<p class="muted">无</p>'}</div>`;
+}
 
 async function loadLive() {
   const s = await api("/api/live");

@@ -116,6 +116,13 @@ const routes: Record<string, (url: URL) => Promise<unknown> | unknown> = {
       return { category: c, suggestions: allSkillInfos().filter((i) => i.category === c).slice(0, 10) };
     });
   },
+  "/api/hub": () =>
+    cached
+      ? import("./monitor/sessionHub.js").then(({ buildSessionHub }) => buildSessionHub(cached!.sessions))
+      : null,
+  "/api/usage": () => import("./monitor/usage.js").then(({ skillUsageStats }) => skillUsageStats()),
+  "/api/registry": () =>
+    import("./monitor/registry.js").then(({ loadRegistry }) => loadRegistry()),
   "/api/outcome": () => (cached ? evaluateAll(cached.sessions) : []),
   "/api/health": () =>
     cached

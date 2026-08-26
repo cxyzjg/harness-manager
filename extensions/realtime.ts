@@ -57,4 +57,26 @@ export default function (pi: ExtensionAPI): void {
     // 不阻塞、不修改工具调用（纯监控）
     return undefined;
   });
+
+  // 技能触发追踪：用户每提交一个回合，记录当前已加载的技能（触发记录）
+  pi.on("before_agent_start", async (event) => {
+    const e = event as {
+      prompt?: string;
+      systemPromptOptions?: {
+        skills?: { name?: string }[];
+        cwd?: string;
+      };
+    };
+    const skills = e.systemPromptOptions?.skills ?? [];
+    const cwd = e.systemPromptOptions?.cwd ?? "";
+    const prompt = (e.prompt ?? "").slice(0, 200);
+    if (skills.length) {
+      logEvent("skill_trigger", {
+        skills: skills.map((s) => s.name).filter(Boolean),
+        cwd,
+        prompt,
+      });
+    }
+    return undefined;
+  });
 }

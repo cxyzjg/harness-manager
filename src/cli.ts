@@ -151,6 +151,59 @@ async function main(): Promise<void> {
       if (!matchedCat) console.log("  (未能识别场景，默认系统工具，可更具体描述)");
       break;
     }
+    case "usage": {
+      // hm usage — 技能触发统计
+      const { skillUsageStats } = await import("./monitor/usage.js");
+      const stats = skillUsageStats();
+      if (useJson) return out(stats);
+      console.log(`技能触发统计 (共 ${stats.totalTriggers} 次触发):\n`);
+      console.log("按技能:");
+      const topSkill = Object.entries(stats.bySkill).sort((a, b) => b[1] - a[1]).slice(0, 15);
+      for (const [k, v] of topSkill) console.log(`  ${String(v).padStart(3)}  ${k}`);
+      if (!topSkill.length) console.log("  (暂无触发记录 — 重启 pi 会话后 extension 会记录 skill_trigger)");
+      console.log("\n按项目:");
+      const topProj = Object.entries(stats.byProject).sort((a, b) => b[1] - a[1]).slice(0, 8);
+      for (const [k, v] of topProj) console.log(`  ${v}\t${k}`);
+      console.log("\n最近触发:");
+      for (const t of stats.recent.slice(0, 8)) {
+        const time = (t.ts ?? "").slice(11, 19);
+        console.log(`  ${time} [${(t.skills || []).join(",").slice(0, 50)}] @ ${(t.cwd || "").slice(0, 40)}`);
+      }
+      break;
+    }
+    case "registry": {
+      // hm registry [rebuild] [resolve <name> <update|keep|ignore>] — 技能注册表管理
+      const { rebuildRegistry, loadRegistry, resolveConflict } = await import("./monitor/registry.js");
+      const repoPath = process.env.HM_REPO_ROOT ?? process.cwd();
+      const sub = args[0];
+      if (sub === "rebuild") {
+        const reg = rebuildRegistry(repoPath);
+        const skills = Object.values(reg.skills);
+        const conflicts = skills.filter((s) => s.conflict?.exists);
+        console.log(`✓ 注册表重建: ${skills.length} 个技能, ${conflicts.length} 个冲突`);
+        if (conflicts.length) {
+          console.log("\n冲突技能 (同名不同内容):");
+          conflicts.forEach((c) => console.log(`  • ${c.name} — 解决: hm registry resolve ${c.name} update|keep|ignore`));
+        }
+        if (useJson) return out(reg);
+      } else if (sub === "resolve") {
+        const name = args[1];
+        const action = args[2] as "update" | "keep" | "ignore";
+        if (!name || !action) return console.log("用法: hm registry resolve <name> <update|keep|ignore>");
+        const reg = loadRegistry();
+        resolveConflict(reg, name, action);
+        console.log(`✓ 已解决冲突 ${name}: ${action}`);
+      } else {
+        const reg = loadRegistry();
+        const skills = Object.values(reg.skills);
+        const conflicts = skills.filter((s) => s.conflict?.exists);
+        console.log(`技能注册表: ${skills.length} 个技能`);
+        console.log(`  状态: active ${skills.filter((s) => s.state === "active").length} / disabled ${skills.filter((s) => s.state === "disabled").length} / duplicate ${skills.filter((s) => s.state === "duplicate").length}`);
+        console.log(`  冲突: ${conflicts.length} 个（hm registry resolve <name> update|keep|ignore）`);
+        conflicts.slice(0, 10).forEach((c) => console.log(`    • ${c.name}: 来源 ${c.sources.map((s) => s.kind).join(", ")}`));
+      }
+      break;
+    }
     case "onboard": {
       // hm onboard — 手动触发：检测新技能 + 询问迁移
       const { detectNewSkills, migrateNewSkills, saveBaseline, singleSourceNames } = await import("./monitor/onboard.js");
@@ -463,6 +516,8 @@ function helpText(): string {
   hm scan              扫描三端数据并缓存(自动检测新技能)
   hm onboard           手动检测新技能并迁移到单源共享
   hm live              实时监控(工具调用/活跃会话, 需pi extension)
+  hm usage             技能触发统计(次数/项目/时间/最近记录)
+  hm registry          技能注册表管理(统一所有技能源, 冲突解决)
   hm resources         列出资源 (skills/工具/扩展)
   hm skill [<name>]    技能中文说明(全部或单个)
   hm suggest <意图>    按场景推荐技能

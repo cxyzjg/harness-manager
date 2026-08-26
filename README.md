@@ -41,6 +41,8 @@ npm install            # 安装依赖
 npm run hm -- scan     # 扫描 pi/CC/Codex 三端数据并缓存(自动检测新技能)
 npm run hm -- onboard  # 新技能检测 + 迁移到单源共享(-y 确认)
 npm run hm -- live     # 实时监控(工具调用/活跃会话, 需pi extension)
+npm run hm -- usage    # 技能触发统计(次数/项目/时间/最近记录)
+npm run hm -- registry # 技能注册表管理(统一所有技能源, 冲突解决)
 npm run hm -- resources   # 列出资源 (skills/工具/扩展, 按分类分组)
 npm run hm -- skill [<name>]  # 技能中文说明(全部或单个)
 npm run hm -- suggest <意图>  # 按场景推荐技能
