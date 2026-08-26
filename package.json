@@ -1,14 +1,42 @@
 {
   "name": "harness-manager",
   "version": "0.1.0",
-  "description": "可分发、多机可复用的 harness 资源管理系统：管理 skills / 扩展 / 工具 / 项目级资源，支持全局与项目划分、去重决策、多机复用。",
-  "keywords": ["pi-package", "harness", "skills", "management"],
+  "description": "可分发、多机可复用的 harness 资源管理系统：管理 skills / 扩展 / 工具 / 会话 / 调用链，支持全局与项目划分、去重决策、多机复用。",
+  "keywords": [
+    "pi-package",
+    "harness",
+    "skills",
+    "management"
+  ],
   "license": "UNLICENSED",
   "private": true,
+  "type": "module",
+  "bin": {
+    "hm": "./src/cli.ts"
+  },
+  "scripts": {
+    "hm": "tsx src/cli.ts",
+    "build": "tsc",
+    "test": "vitest run"
+  },
   "pi": {
-    "extensions": ["./extensions"],
-    "skills": ["./skills"],
-    "prompts": ["./prompts"],
-    "themes": ["./themes"]
+    "extensions": [
+      "./extensions"
+    ],
+    "skills": [
+      "./skills"
+    ],
+    "prompts": [
+      "./prompts"
+    ],
+    "themes": [
+      "./themes"
+    ]
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.0.0",
+    "vitest": "^4.1.11"
   }
 }

@@ -34,6 +34,22 @@ less docs/DECISIONS.md
 ./scripts/apply.sh --dry-run <command>
 ```
 
+## CLI（M1 数据层）
+
+```bash
+npm install            # 安装依赖
+npm run hm -- scan     # 扫描 pi/CC/Codex 三端数据并缓存
+npm run hm -- resources   # 列出资源 (skills/工具/扩展)
+npm run hm -- sessions    # 列出会话
+npm run hm -- trace <id>  # 显示某会话调用链树
+npm run hm -- slowest     # 最慢调用 Top10
+npm run hm -- token       # token 聚合
+npm run hm -- dedupe      # 去重候选（同名 + 功能重叠）
+npm run hm -- memories    # 记忆/规范文件
+npm run hm -- freq        # 工具调用频率
+npx vitest run            # 跑测试
+```
+
 ## 核心概念
 
 | 概念 | 放哪 | 全机一致？ |
