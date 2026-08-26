@@ -43,3 +43,27 @@
 
 - [ ] 逐组拍板 G1-G6，用 `./scripts/apply.sh enable|disable <skill>` 落账
 - [ ] 拍板后更新 `INDEX.md` 中对应状态
+
+- [2026-08-26] `ask-matt` (@pi:global) -> active（去重保留主用）
+
+- [2026-08-26] `ask-matt` (@package:package) -> duplicate-of:ask-matt（一键去重）
+
+- [2026-08-26] `claude-handoff` (@pi:global) -> active（去重保留主用）
+
+- [2026-08-26] `claude-handoff` (@package:package) -> duplicate-of:claude-handoff（一键去重）
+
+- [2026-08-26] `claude-handoff` (@pi:global) -> active（去重保留主用）
+
+- [2026-08-26] `claude-handoff` (@package:package) -> duplicate-of:claude-handoff（一键去重）
+
+- [2026-08-26] `code-review` (@pi:global) -> duplicate-of:code-review（一键去重）
+
+- [2026-08-26] `code-review` (@package:package) -> duplicate-of:code-review（一键去重）
+
+- [2026-08-26] `code-review` (@claude:project) -> active（去重保留主用）
+
+- [2026-08-26] `code-review` (@pi:global) -> active（去重保留主用）
+
+- [2026-08-26] `code-review` (@package:package) -> duplicate-of:code-review（一键去重）
+
+- [2026-08-26] `code-review` (@claude:project) -> duplicate-of:code-review（一键去重）

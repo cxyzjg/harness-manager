@@ -5,10 +5,6 @@ docs/FLEET-*.md
 # 包管理
 node_modules/
 
-# 单源技能迁移目录（避免测试/误操作产生的副本被提交；正式迁移需 git add -f 或移除忽略）
-skills/*/
-!skills/manage-skills/
-
 # OS / 编辑器
 .DS_Store
 Thumbs.db

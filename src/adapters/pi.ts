@@ -85,15 +85,17 @@ export class PiAdapter implements Adapter {
           if (!src) continue;
           const pkgPath = resolvePackagePath(src, agent);
           if (pkgPath && existsSync(join(pkgPath, "skills"))) {
+            // 判定是否为单源共享包（harness-manager 仓库自身）
+            const isSingleSource = /harness[-_]manager/i.test(pkgPath);
             for (const name of readdirSync(join(pkgPath, "skills"))) {
               const sk = join(pkgPath, "skills", name, "SKILL.md");
               if (!existsSync(sk)) continue;
               out.push({
-                id: `pi:package:${name}`,
+                id: isSingleSource ? `single:${name}` : `pi:package:${name}`,
                 name,
                 kind: "skill",
-                source: "package",
-                scope: "package",
+                source: isSingleSource ? "single-source" : "package",
+                scope: isSingleSource ? "single-source" : "package",
                 path: sk,
                 status: "active",
                 harnesses: ["pi"],
