@@ -1,0 +1,124 @@
+/**
+ * M3 Web 控制面：本地 HTTP 服务（零依赖，Node 内置 http）
+ * API:
+ *   GET /api/dashboard   — 总览（资源/会话/token/去重统计）
+ *   GET /api/resources   — 资源列表
+ *   GET /api/sessions    — 会话列表
+ *   GET /api/sessions/<id> — 会话详情（含调用链树）
+ *   GET /api/dedupe      — 去重候选
+ *   GET /api/trend       — token 趋势
+ *   GET /api/stats       — 上下文规模 + 工具统计
+ *   GET /api/memories    — 记忆文件
+ *   GET /                — 单页可视化
+ */
+import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import { readFileSync, existsSync } from "node:fs";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { loadConfig, ensureDataDir } from "./config.js";
+import { scan } from "./orchestrator.js";
+import { loadCache, saveCache } from "./storage.js";
+import { detectDupes } from "./analysis/dedupe.js";
+import { aggregateTokens, contextStats, toolStats } from "./analysis/stats.js";
+import { buildCallTree } from "./analysis/calltree.js";
+
+const __dirname = join(fileURLToPath(import.meta.url), "..");
+
+let cached = loadCache();
+
+function json(res: ServerResponse, data: unknown, status = 200): void {
+  res.writeHead(status, { "Content-Type": "application/json; charset=utf-8" });
+  res.end(JSON.stringify(data));
+}
+
+async function ensureData(): Promise<void> {
+  if (!cached) {
+    cached = await scan();
+    saveCache(cached);
+  }
+}
+
+function dashboard() {
+  if (!cached) return { resources: 0, sessions: 0, memories: 0, tokens: 0, dupes: [] };
+  const tokens = aggregateTokens(cached.sessions);
+  const dupes = detectDupes(cached.resources);
+  const cs = contextStats(cached.sessions);
+  return {
+    resources: cached.resources.length,
+    sessions: cached.sessions.length,
+    memories: cached.memories.length,
+    bySource: countBy(cached.resources, (r) => r.source),
+    tokens: tokens.total,
+    totalMessages: cs.totalMessages,
+    dupes: dupes.length,
+    dupeGroups: dupes.slice(0, 10).map((d) => d.reason),
+  };
+}
+
+function countBy<T>(arr: T[], key: (x: T) => string): Record<string, number> {
+  const m: Record<string, number> = {};
+  for (const x of arr) m[key(x)] = (m[key(x)] ?? 0) + 1;
+  return m;
+}
+
+function sessionDetail(id: string) {
+  if (!cached) return null;
+  const s = cached.sessions.find((x) => x.id.startsWith(id));
+  if (!s) return null;
+  return { ...s, tree: buildCallTree(s.tools) };
+}
+
+const routes: Record<string, (url: URL) => Promise<unknown> | unknown> = {
+  "/api/dashboard": () => dashboard(),
+  "/api/resources": () => cached?.resources ?? [],
+  "/api/sessions": () => cached?.sessions ?? [],
+  "/api/dedupe": () => (cached ? detectDupes(cached.resources) : []),
+  "/api/trend": () => (cached ? aggregateTokens(cached.sessions) : {}),
+  "/api/stats": () =>
+    cached
+      ? { cs: contextStats(cached.sessions), ts: toolStats(cached.sessions) }
+      : {},
+  "/api/memories": () => cached?.memories ?? [],
+};
+
+export function startServer(): void {
+  const cfg = loadConfig();
+  ensureDataDir();
+  const htmlPath = join(__dirname, "web", "index.html");
+
+  const server = createServer(async (req: IncomingMessage, res: ServerResponse) => {
+    const url = new URL(req.url ?? "/", "http://localhost");
+    const path = url.pathname;
+
+    try {
+      if (path.startsWith("/api/")) {
+        await ensureData();
+        // 会话详情
+        const m = path.match(/^\/api\/sessions\/(.+)$/);
+        if (m) {
+          const detail = sessionDetail(decodeURIComponent(m[1]));
+          return detail ? json(res, detail) : json(res, { error: "not found" }, 404);
+        }
+        const handler = routes[path];
+        if (!handler) return json(res, { error: "not found" }, 404);
+        return json(res, await handler(url));
+      }
+
+      // 静态页面
+      if (path === "/" || path === "/index.html") {
+        if (existsSync(htmlPath)) {
+          res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+          return res.end(readFileSync(htmlPath));
+        }
+        return json(res, { error: "web not built" }, 500);
+      }
+      return json(res, { error: "not found" }, 404);
+    } catch (e) {
+      return json(res, { error: (e as Error).message }, 500);
+    }
+  });
+
+  server.listen(cfg.port, () => {
+    console.log(`harness-manager Web 控制面: http://localhost:${cfg.port}`);
+  });
+}

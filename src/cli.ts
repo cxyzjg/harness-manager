@@ -204,7 +204,14 @@ async function main(): Promise<void> {
       break;
     }
     case "serve":
-      console.log("M3 Web 服务尚未实现；先使用 hm scan/list/trace/token/dedupe");
+      {
+        const { startServer } = await import("./server.js");
+        // 确保数据已扫描
+        const r = await scan();
+        saveCache(r);
+        console.log(`✓ 已加载 ${r.resources.length} 资源, ${r.sessions.length} 会话`);
+        startServer();
+      }
       break;
     default:
       console.log(`未知命令: ${cmd}`);
@@ -229,7 +236,7 @@ function helpText(): string {
   hm trend              token 趋势(按项目/模型)
   hm timeline <id>     会话时间线
   hm stats             上下文规模 + 工具统计 + CC慢调用
-  hm serve             启动 Web 服务 (M3, 未实现)
+  hm serve             启动 Web 控制面 (localhost:8787)
 `;
 }
 

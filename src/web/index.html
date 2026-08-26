@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>harness-manager 控制面</title>
+<style>
+  :root { --bg:#0f1115; --card:#1a1d24; --line:#2a2e37; --fg:#e6e8eb; --muted:#9aa0a8; --accent:#4f8cff; --green:#3fb950; --red:#f85149; --yellow:#d29922; }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body { font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif; background:var(--bg); color:var(--fg); }
+  header { padding:16px 24px; border-bottom:1px solid var(--line); display:flex; align-items:center; gap:16px; }
+  header h1 { font-size:18px; }
+  header .badge { font-size:12px; color:var(--muted); }
+  nav { display:flex; gap:4px; padding:8px 24px; border-bottom:1px solid var(--line); flex-wrap:wrap; }
+  nav button { background:none; border:none; color:var(--muted); padding:8px 14px; border-radius:8px; cursor:pointer; font-size:14px; }
+  nav button.active { background:var(--card); color:var(--fg); }
+  nav button:hover { background:var(--card); }
+  main { padding:20px 24px; max-width:1200px; }
+  .cards { display:grid; grid-template-columns:repeat(auto-fit,minmax(160px,1fr)); gap:12px; margin-bottom:20px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:16px; }
+  .card .num { font-size:28px; font-weight:700; }
+  .card .label { font-size:12px; color:var(--muted); margin-top:4px; }
+  .panel { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:16px; margin-bottom:16px; }
+  .panel h2 { font-size:15px; margin-bottom:12px; }
+  table { width:100%; border-collapse:collapse; font-size:13px; }
+  th,td { text-align:left; padding:8px 10px; border-bottom:1px solid var(--line); }
+  th { color:var(--muted); font-weight:500; }
+  tr:hover td { background:#20242c; }
+  code { background:#242933; padding:2px 6px; border-radius:4px; font-size:12px; }
+  .tag { display:inline-block; padding:2px 8px; border-radius:10px; font-size:11px; }
+  .tag.green { background:#1b3321; color:var(--green); }
+  .tag.yellow { background:#33290f; color:var(--yellow); }
+  .tag.red { background:#3d1d1d; color:var(--red); }
+  .mono { font-family:ui-monospace,SFMono-Regular,Consolas,monospace; }
+  .trace { font-family:ui-monospace,Consolas,monospace; font-size:12px; line-height:1.7; white-space:pre-wrap; background:#161a20; border-radius:8px; padding:12px; max-height:500px; overflow:auto; }
+  .muted { color:var(--muted); }
+  .bar { background:#242933; border-radius:4px; height:8px; overflow:hidden; margin-top:4px; }
+  .bar > div { background:var(--accent); height:100%; }
+  .error { color:var(--red); }
+  a { color:var(--accent); text-decoration:none; }
+  .row { display:flex; gap:12px; flex-wrap:wrap; }
+  .row > .panel { flex:1; min-width:280px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>🛰️ harness-manager</h1>
+  <span class="badge">跨 Agent 资源 / 会话 / 调用链 控制面</span>
+</header>
+<nav id="nav">
+  <button data-page="dashboard" class="active">仪表盘</button>
+  <button data-page="resources">资源</button>
+  <button data-page="sessions">会话</button>
+  <button data-page="dedupe">去重候选</button>
+  <button data-page="token">Token 趋势</button>
+  <button data-page="stats">统计</button>
+</nav>
+<main id="main">
+  <div class="cards" id="cards"></div>
+  <div id="content"></div>
+</main>
+
+<script>
+const $ = (sel) => document.querySelector(sel);
+const api = async (p) => (await fetch(p)).json();
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
+const fmt = (n) => (n ?? 0).toLocaleString();
+const tag = (t) => `<span class="tag ${t}">${t}</span>`;
+
+async function loadDashboard() {
+  const d = await api("/api/dashboard");
+  $("#cards").innerHTML = [
+    { n: d.resources, l: "资源 (skills/工具/扩展)" },
+    { n: d.sessions, l: "会话" },
+    { n: fmt(d.tokens), l: "token 总量" },
+    { n: d.totalMessages, l: "消息数" },
+    { n: d.dupes, l: "去重候选组" },
+  ].map((c) => `<div class="card"><div class="num">${c.n}</div><div class="label">${c.l}</div></div>`).join("");
+  const src = Object.entries(d.bySource || {}).map(([k,v]) => `${esc(k)}: ${v}`).join(" · ");
+  $("#content").innerHTML = `
+    <div class="panel"><h2>资源来源分布</h2><p class="muted">${esc(src) || "无数据"}</p></div>
+    <div class="panel"><h2>去重候选 (Top)</h2>
+      ${d.dupeGroups?.length ? d.dupeGroups.map((g) => `<div class="muted">• ${esc(g)}</div>`).join("") : `<p class="muted">无</p>`}
+    </div>`;
+}
+
+async function loadResources() {
+  const r = await api("/api/resources");
+  const rows = r.map((x) => `<tr>
+    <td>${esc(x.name)}</td>
+    <td>${tag(x.kind)}</td>
+    <td>${esc(x.source)}:${esc(x.scope)}</td>
+    <td>${esc(x.status)}</td>
+    <td class="muted">${esc((x.description||"").slice(0,60))}</td>
+  </tr>`).join("");
+  $("#content").innerHTML = `<div class="panel"><h2>资源清单 (${r.length})</h2>
+    <table><thead><tr><th>名称</th><th>类型</th><th>来源:归属</th><th>状态</th><th>描述</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+}
+
+async function loadSessions() {
+  const s = await api("/api/sessions");
+  const rows = s.map((x) => `<tr>
+    <td><a href="#" onclick="showSession('${esc(x.id)}');return false;" class="mono">${esc(x.id.slice(0,20))}</a></td>
+    <td>${esc(x.harness)}</td>
+    <td>${esc((x.startedAt||"").slice(0,16))}</td>
+    <td>${x.messages}</td>
+    <td>${x.tools.length}</td>
+    <td>${x.tokenUsage ? fmt(x.tokenUsage.total) : "—"}</td>
+    <td class="muted">${esc(x.cwd)}</td>
+  </tr>`).join("");
+  $("#content").innerHTML = `<div class="panel"><h2>会话列表 (${s.length}) — 点击 id 查看调用链</h2>
+    <table><thead><tr><th>id</th><th>harness</th><th>时间</th><th>消息</th><th>工具</th><th>token</th><th>项目</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+}
+
+async function showSession(id) {
+  const s = await api("/api/sessions/" + encodeURIComponent(id));
+  if (!s || s.error) return ($("#content").innerHTML = `<p class="error">未找到</p>`);
+  let treeTxt;
+  try {
+    treeTxt = renderTreeText(s.tree, 0);
+  } catch { treeTxt = s.tools.map((t,i) => `${i+1}. ${t.name}`).join("\n"); }
+  $("#content").innerHTML = `
+    <button onclick="loadSessions()" style="background:none;border:none;color:var(--accent);cursor:pointer;margin-bottom:10px">← 返回</button>
+    <div class="panel"><h2>会话 ${esc(s.id)}</h2>
+      <p class="muted">${esc(s.harness)} · ${esc(s.cwd)} · ${s.messages} 消息 · ${s.tools.length} 次工具调用${s.tokenUsage ? " · token " + fmt(s.tokenUsage.total) : ""}</p>
+      <h2 style="margin-top:14px">调用链</h2>
+      <div class="trace">${esc(treeTxt)}</div>
+    </div>`;
+}
+
+function renderTreeText(nodes, depth) {
+  if (!nodes?.length) return "（无调用）";
+  let out = "";
+  const walk = (n, d) => {
+    const pad = "  ".repeat(d);
+    const dur = n.call?.durationMs != null ? ` [${n.call.durationMs}ms]` : "";
+    out += `${pad}${n.call?.name}${dur}\n`;
+    n.children?.forEach((c) => walk(c, d + 1));
+  };
+  nodes.forEach((n) => walk(n, depth));
+  return out;
+}
+
+async function loadDedupe() {
+  const d = await api("/api/dedupe");
+  const groups = d.map((g) => `<div class="panel"><h2>${g.kind === "same-name" ? "同名" : "功能重叠"}</h2>
+    <p class="muted">${esc(g.reason)}</p>
+    <div class="mono" style="margin-top:8px">${g.names.map(esc).join("<br>")}</div></div>`).join("");
+  $("#content").innerHTML = groups || `<p class="muted">未发现去重候选</p>`;
+}
+
+async function loadToken() {
+  const t = await api("/api/trend");
+  const max = Math.max(1, ...Object.values(t.byProject||{}).map((v) => v.input));
+  const proj = Object.entries(t.byProject||{}).sort((a,b)=>b[1].input-a[1].input).map(([k,v]) => `
+    <div style="margin-bottom:10px"><div>${esc(k)} <span class="muted">(${v.sessions} 会话, in=${fmt(v.input)} out=${fmt(v.output)})</span></div>
+    <div class="bar"><div style="width:${(v.input/max*100).toFixed(1)}%"></div></div></div>`).join("");
+  const model = Object.entries(t.byModel||{}).sort((a,b)=>b[1].input-a[1].input).map(([k,v]) => `
+    <div>${esc(k)}: <span class="muted">${v.sessions} 会话 in=${fmt(v.input)}</span></div>`).join("");
+  $("#content").innerHTML = `
+    <div class="row">
+      <div class="panel"><h2>按项目 token (in)</h2>${proj || '<p class="muted">无 token 数据</p>'}</div>
+      <div class="panel"><h2>按模型</h2>${model || '<p class="muted">无</p>'}</div>
+    </div>
+    <div class="panel"><h2>总量</h2><p>in=${fmt(t.totalInput)} out=${fmt(t.totalOutput)} total=${fmt(t.total)}</p></div>`;
+}
+
+async function loadStats() {
+  const st = await api("/api/stats");
+  const cs = st.cs || {}, ts = st.ts || {};
+  const toolBars = (ts.topTools||[]).slice(0,10).map((t,i) => `
+    <div style="margin-bottom:6px"><span>${esc(t.name)}</span> <span class="muted">×${t.count}</span></div>`).join("");
+  $("#content").innerHTML = `
+    <div class="row">
+      <div class="panel"><h2>上下文规模</h2>
+        <p>${cs.totalSessions} 会话 · ${cs.totalMessages} 消息 · 平均 ${cs.avgMessagesPerSession}/会话</p>
+        <p class="muted">估算 token ≈ ${fmt(cs.estimatedTotalTokens)}</p>
+        <h3 style="margin:12px 0 8px">大会话 Top</h3>
+        ${(cs.largeSessions||[]).map((s)=>`<div>${s.messages} 消息 — ${esc(s.cwd)}</div>`).join("")}
+      </div>
+      <div class="panel"><h2>工具频率 Top</h2>${toolBars || '<p class="muted">无</p>'}</div>
+    </div>`;
+}
+
+const pages = { dashboard: loadDashboard, resources: loadResources, sessions: loadSessions, dedupe: loadDedupe, token: loadToken, stats: loadStats };
+
+$("#nav").addEventListener("click", (e) => {
+  const b = e.target.closest("button"); if (!b) return;
+  document.querySelectorAll("#nav button").forEach((x) => x.classList.remove("active"));
+  b.classList.add("active");
+  pages[b.dataset.page]();
+});
+
+loadDashboard();
+</script>
+</body>
+</html>
