@@ -133,13 +133,40 @@ async function loadResources() {
       <button class="op" onclick="toggleSel()">全选</button>
       <button class="op" onclick="batchMove()">⬆ 一键迁移选中到单源</button>
       <button class="op" onclick="batchDisable()">⛔ 批量停用选中</button>
+      <button class="op" onclick="checkNewSkills()">🆕 检测新技能</button>
       <span class="muted" style="font-size:12px" id="sel-count">已选 0</span>
     </div>
+    <div id="new-skill-panel"></div>
     <table><thead><tr><th></th><th>名称</th><th>类型</th><th>来源:归属</th><th>状态</th><th>描述</th><th>操作</th></tr></thead><tbody>${rows}</tbody></table></div>`;
 }
 
 function selectedIds() {
   return [...document.querySelectorAll(".res-sel:checked")].map((el) => el.value);
+}
+
+async function checkNewSkills() {
+  const panel = document.getElementById("new-skill-panel");
+  const d = await fetch("/api/onboard", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({}) }).then((r) => r.json());
+  const cs = d.candidates || [];
+  if (!cs.length) {
+    panel.innerHTML = `<div class="panel" style="border-color:var(--green)"><h2>🆕 新技能检测</h2><p class="muted">无新技能，单源已全部托管 ${d.singleSourceCount ?? 0} 个技能 ✓</p></div>`;
+    return;
+  }
+  const list = cs.map((c) => `<label style="display:block;margin:3px 0"><input type="checkbox" class="ns-sel" value="${esc(c.name)}" checked> ${esc(c.name)} <span class="muted">→ ${esc(c.path)}</span></label>`).join("");
+  panel.innerHTML = `<div class="panel" style="border-color:var(--yellow)"><h2>🆕 发现 ${cs.length} 个新技能（未在单源共享）</h2>
+    <div>${list}</div>
+    <button class="op" style="margin-top:8px;padding:6px 14px" onclick="migrateNewSkills()">⬆ 迁移选中到单源</button>
+  </div>`;
+}
+
+async function migrateNewSkills() {
+  const names = [...document.querySelectorAll(".ns-sel:checked")].map((el) => el.value);
+  if (!names.length) return toast("请先勾选要迁移的技能");
+  if (!confirm(`将把 ${names.length} 个技能复制到单源共享 skills/。确认?`)) return;
+  const r = await fetch("/api/onboard", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ names, confirm: true }) }).then((x) => x.json());
+  toast(`✓ 已迁移 ${(r.migrated || []).length} 个技能到单源`);
+  document.getElementById("new-skill-panel").innerHTML = "";
+  loadResources();
 }
 
 function toggleSel() {

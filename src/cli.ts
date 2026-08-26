@@ -48,6 +48,53 @@ async function main(): Promise<void> {
         `✓ 扫描完成: ${r.resources.length} 资源, ${r.sessions.length} 会话, ${r.memories.length} 记忆, ${r.errors.length} 错误`
       );
       if (r.errors.length) r.errors.forEach((e) => console.log(`  ⚠ ${e}`));
+      // 新技能检测 + 询问迁移
+      const { detectNewSkills, migrateNewSkills, saveBaseline, singleSourceNames } = await import("./monitor/onboard.js");
+      const repoPath = process.env.HM_REPO_ROOT ?? process.cwd();
+      const candidates = detectNewSkills(r.resources, repoPath);
+      if (candidates.length) {
+        console.log(`\n🆕 发现 ${candidates.length} 个新技能（未在单源共享中）:`);
+        candidates.forEach((c, i) => console.log(`  ${i + 1}. ${c.name} → ${c.path}`));
+        // 非交互模式（--yes 自动迁移）
+        if (args.includes("--yes")) {
+          const migrated = await migrateNewSkills(candidates, repoPath);
+          console.log(`\n✓ 已自动迁移 ${migrated.length} 个到单源`);
+        } else if (!args.includes("--no-ask")) {
+          // 询问（CLI 无法交互时给出提示命令）
+          console.log(`\n是否迁移到单源共享? 执行: npm run hm -- onboard 或 npm run hm -- scan --yes`);
+        }
+      } else {
+        console.log(`\n无新技能（单源 ${singleSourceNames(repoPath).size} 个已全部托管）`);
+      }
+      // 保存基线
+      saveBaseline(singleSourceNames(repoPath));
+      break;
+    }
+    case "onboard": {
+      // hm onboard — 手动触发：检测新技能 + 询问迁移
+      const { detectNewSkills, migrateNewSkills, saveBaseline, singleSourceNames } = await import("./monitor/onboard.js");
+      const r = await ensureScan();
+      const repoPath = process.env.HM_REPO_ROOT ?? process.cwd();
+      const candidates = detectNewSkills(r.resources, repoPath);
+      if (!candidates.length) {
+        console.log("无新技能需要迁移（全部已在单源共享）");
+        saveBaseline(singleSourceNames(repoPath));
+        break;
+      }
+      console.log(`发现 ${candidates.length} 个新技能:`);
+      candidates.forEach((c, i) => console.log(`  ${i + 1}. ${c.name} → ${c.path}`));
+      if (!args.includes("-y")) {
+        console.log("\n将复制这些技能到单源共享目录 skills/。确认执行请加 -y");
+        break;
+      }
+      const migrated = await migrateNewSkills(candidates, repoPath);
+      console.log(`\n✓ 已迁移 ${migrated.length} 个技能到单源共享:`);
+      migrated.forEach((m) => console.log(`  • ${m}`));
+      // 重新扫描以更新缓存
+      const r2 = await scan();
+      saveCache(r2);
+      saveBaseline(singleSourceNames(repoPath));
+      console.log(`\n✓ 缓存已更新，单源共享现有 ${singleSourceNames(repoPath).size} 个技能`);
       break;
     }
     case "resources": {
@@ -317,7 +364,8 @@ function helpText(): string {
   return `harness-manager CLI
 
 用法:
-  hm scan              扫描三端数据并缓存
+  hm scan              扫描三端数据并缓存(自动检测新技能)
+  hm onboard           手动检测新技能并迁移到单源共享
   hm resources         列出资源 (skills/工具/扩展)
   hm sessions          列出会话
   hm trace <id>        显示会话调用链树

@@ -100,6 +100,27 @@ export function startServer(): void {
     const path = url.pathname;
 
     try {
+      // POST /api/onboard — 新技能迁移（检测 + 执行）
+      if (path === "/api/onboard" && req.method === "POST") {
+        let body = "";
+        for await (const chunk of req) body += chunk;
+        const payload = JSON.parse(body) as { names?: string[]; confirm?: boolean };
+        const { detectNewSkills, migrateNewSkills, saveBaseline, singleSourceNames } = await import("./monitor/onboard.js");
+        const candidates = detectNewSkills(cached?.resources ?? [], repoRoot);
+        if (payload.confirm === true) {
+          const toMigrate = payload.names
+            ? candidates.filter((c) => payload.names!.includes(c.name))
+            : candidates;
+          const migrated = await migrateNewSkills(toMigrate, repoRoot);
+          // 重扫更新缓存
+          cached = await scan();
+          saveCache(cached);
+          saveBaseline(singleSourceNames(repoRoot));
+          return json(res, { migrated, candidates });
+        }
+        return json(res, { candidates, singleSourceCount: singleSourceNames(repoRoot).size });
+      }
+
       // POST /api/apply — 管理操作（dry-run 或确认执行）
       if (path === "/api/apply" && req.method === "POST") {
         let body = "";

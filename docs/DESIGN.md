@@ -158,6 +158,8 @@ pi、Claude Code、Codex 等 AI agent 工具的 skills、工具、扩展、会�
 - [x] **M4 管理操作**：`apply.ts` 启停/迁移（dry-run→确认→落盘）；`hm apply <op> <id> [reason] [-y]`；Web `POST /api/apply` + 资源页操作按钮；写 DECISIONS.md + 更新缓存状态，不删文件不改 trust/gate/settings；21 个单元测试
 - [x] **M5 多服务器部署**：`deploy.ts` 一键部署（clone/npm install/生成配置/首次扫描）；`hm deploy` 命令；每机数据独立无跨机同步；21 个单元测试
 - [x] **闭环监控增强**：会话成效评估(hm outcome) + 技能健康监控(hm health) + 一键去重/一键迁移 + 迁移状态标记(migrated) + **执行轨迹+思考过程(hm story, Web会话详情双tab)**；35 个单元测试
+- [x] **新技能自动检测+询问迁移**：`hm scan` 自动检测未托管新技能并提示；`hm onboard` 一键迁移到单源；Web 资源页"检测新技能"按钮；基线存 ~/.harness-manager/skill-baseline.json；38 个单元测试
+- [x] **技能单源化迁移**：45 个技能(agents 38 + claude 7)迁入单源，同名去重，原目录删除，备份可回滚；单源内技能标记 single-source
 - [ ] 全部里程碑完成 — 待整体验收
 
 ## 8. 待确认
