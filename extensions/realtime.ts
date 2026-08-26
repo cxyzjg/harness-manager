@@ -10,7 +10,7 @@
  */
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { appendFileSync, mkdirSync } from "node:fs";
-import { join } from "node:os";
+import { join } from "node:path";
 import { homedir } from "node:os";
 
 const LOG_DIR = join(homedir(), ".harness-manager", "realtime");
