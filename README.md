@@ -97,6 +97,7 @@ harness-manager/
 ├── prompts/ themes/
 ├── docs/
 │   ├── INDEX.md                 # Catalog 总索引 + 场景→技能映射
+│   ├── SKILLS-GUIDE.md          # 技能中文分类指南(8大类,什么场景用什么)
 │   ├── DECISIONS.md             # 去重/归属决策记录
 │   ├── INSTALL.md               # 多服务器部署/更新/迁移指南
 │   └── STATUS-<host>.md         # Inventory 本机快照（脚本生成）

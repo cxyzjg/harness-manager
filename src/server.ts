@@ -21,6 +21,7 @@ import { detectDupes } from "./analysis/dedupe.js";
 import { aggregateTokens, contextStats, toolStats } from "./analysis/stats.js";
 import { buildCallTree } from "./analysis/calltree.js";
 import { planMutation, executeMutation, executeDedupe, repoRoot, type ApplyRequest } from "./apply.js";
+import * as skillCategories from "./analysis/skillCategories.js";
 import { evaluateAll } from "./monitor/sessionOutcome.js";
 import { assessSkillHealth, healthSummary } from "./monitor/skillHealth.js";
 
@@ -72,7 +73,15 @@ function sessionDetail(id: string) {
 
 const routes: Record<string, (url: URL) => Promise<unknown> | unknown> = {
   "/api/dashboard": () => dashboard(),
-  "/api/resources": () => cached?.resources ?? [],
+  "/api/resources": () =>
+    (cached?.resources ?? []).map((r) => {
+      if (r.kind === "skill" || r.kind === "project-skill") {
+        const { categoryOf, CATEGORY_ICON } = skillCategories;
+        const cat = categoryOf(r.name);
+        return { ...r, category: cat, categoryIcon: CATEGORY_ICON[cat] };
+      }
+      return r;
+    }),
   "/api/sessions": () => cached?.sessions ?? [],
   "/api/dedupe": () => (cached ? detectDupes(cached.resources) : []),
   "/api/trend": () => (cached ? aggregateTokens(cached.sessions) : {}),

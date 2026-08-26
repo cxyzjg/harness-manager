@@ -116,29 +116,38 @@ async function loadDashboard() {
 
 async function loadResources() {
   const r = await api("/api/resources");
-  const rows = r.map((x) => `<tr>
+  const catFilter = (document.getElementById("cat-filter")?.value) || "all";
+  const rows = r.map((x) => {
+    if (catFilter !== "all" && x.category !== catFilter) return "";
+    const catTag = x.category ? `<span class="tag" style="background:#242933;color:var(--accent)">${esc(x.categoryIcon||"")} ${esc(x.category)}</span>` : "";
+    return `<tr>
     <td><input type="checkbox" class="res-sel" value="${esc(x.id)}"></td>
     <td>${esc(x.name)}</td>
+    <td>${catTag}</td>
     <td>${tag(x.kind)}</td>
     <td>${esc(x.source)}:${esc(x.scope)}</td>
     <td>${statusTag(x.status, x.migratedTo)}</td>
-    <td class="muted">${esc((x.description||"").slice(0,60))}</td>
+    <td class="muted">${esc((x.description||"").slice(0,50))}</td>
     <td>
       <button class="op" data-id="${esc(x.id)}" data-name="${esc(x.name)}" title="标记为重复/被取代(记录决策)" onclick="applyRes('disable',this)">停用</button>
       <button class="op" data-id="${esc(x.id)}" data-name="${esc(x.name)}" title="恢复为正常使用" onclick="applyRes('enable',this)">启用</button>
       <button class="op" data-id="${esc(x.id)}" data-name="${esc(x.name)}" title="复制到仓库 skills/ 供多端共享" onclick="applyRes('move',this)">迁单源</button>
     </td>
-  </tr>`).join("");
+  </tr>`;
+  }).join("");
+  const cats = [...new Set(r.map((x) => x.category).filter(Boolean))];
+  const catOpts = `<option value="all">全部分类</option>` + cats.map((c) => `<option value="${esc(c)}">${esc(c)}</option>`).join("");
   $("#content").innerHTML = `<div class="panel"><h2>资源清单 (${r.length})</h2>
     <div style="margin:8px 0;display:flex;gap:8px;align-items:center">
       <button class="op" onclick="toggleSel()">全选</button>
       <button class="op" onclick="batchMove()">⬆ 一键迁移选中到单源</button>
       <button class="op" onclick="batchDisable()">⛔ 批量停用选中</button>
       <button class="op" onclick="checkNewSkills()">🆕 检测新技能</button>
+      <select id="cat-filter" onchange="loadResources()" style="background:#242933;color:var(--fg);border:1px solid var(--line);border-radius:6px;padding:4px 8px">${catOpts}</select>
       <span class="muted" style="font-size:12px" id="sel-count">已选 0</span>
     </div>
     <div id="new-skill-panel"></div>
-    <table><thead><tr><th></th><th>名称</th><th>类型</th><th>来源:归属</th><th>状态</th><th>描述</th><th>操作</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+    <table><thead><tr><th></th><th>名称</th><th>分类</th><th>类型</th><th>来源:归属</th><th>状态</th><th>描述</th><th>操作</th></tr></thead><tbody>${rows}</tbody></table></div>`;
 }
 
 function selectedIds() {

@@ -128,10 +128,25 @@ async function main(): Promise<void> {
     case "resources": {
       const r = await ensureScan();
       if (useJson) return out(r.resources);
-      for (const res of r.resources) {
-        console.log(
-          `[${res.kind}] ${res.name} @ ${res.source}:${res.scope} (${res.status}) — ${res.description ?? ""}`
-        );
+      // 按分类分组显示
+      const { categoryOf, CATEGORY_ICON } = await import("./analysis/skillCategories.js");
+      const skills = r.resources.filter((x) => x.kind === "skill" || x.kind === "project-skill");
+      const groups = new Map<string, typeof skills>();
+      for (const s of skills) {
+        const c = categoryOf(s.name);
+        groups.set(c, [...(groups.get(c) ?? []), s]);
+      }
+      // 先显示分类技能，再显示其他资源
+      for (const [cat, list] of groups) {
+        console.log(`\n${CATEGORY_ICON[cat as keyof typeof CATEGORY_ICON] ?? ""} ${cat} (${list.length}):`);
+        for (const s of list) {
+          console.log(`  ${s.name} @ ${s.source}:${s.scope} (${s.status}) — ${(s.description ?? "").slice(0, 60)}`);
+        }
+      }
+      const others = r.resources.filter((x) => x.kind !== "skill" && x.kind !== "project-skill");
+      if (others.length) {
+        console.log(`\n其他资源 (${others.length}):`);
+        for (const res of others) console.log(`  [${res.kind}] ${res.name} @ ${res.source}:${res.scope}`);
       }
       break;
     }

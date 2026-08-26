@@ -13,6 +13,8 @@ export interface Config {
 }
 
 export function dataDir(): string {
+  // 测试/自定义可用 HM_DATA_DIR 覆盖（避免并行测试污染全局缓存）
+  if (process.env.HM_DATA_DIR) return process.env.HM_DATA_DIR;
   return join(homedir(), ".harness-manager");
 }
 
