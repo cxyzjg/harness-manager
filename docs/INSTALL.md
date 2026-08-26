@@ -63,20 +63,32 @@ cd ~/harness-manager && git pull
 | `tool-gate.json` 禁用/启用决策 | ❌ 各机自己定 |
 | `trust.json` 信任项目 | ❌ 各机自己定 |
 
-## 4. 多机 fleet 汇总（可选，只读）
+## 4. 多服务器快速部署（每机独立）
 
-前提：本机能 ssh 到各目标机，且各目标机已安装本仓库并跑过 `scan.sh`。
+harness-manager 是**可分发**的：每台服务器数据独立，无需任何跨机同步/汇总。
+在一台新服务器上用起来只需三步：
 
 ```bash
-./scripts/scan-fleet.sh host1 host2 host3   # bash 版（只读）
-# 或 TS 版（功能更全）:
-npm run hm -- fleet host1 host2 host3        # 汇总
-npm run hm -- fleet-diff host1 host2         # 差异对比
-# 或 Web 页: hm serve → 多机页输入主机列表
+# 1. 获取仓库
+git clone https://github.com/cxyzjg/harness-manager.git
+#    或作为 pi 包: pi install git:github.com/cxyzjg/harness-manager
+
+# 2. 一键部署（npm install + 生成配置 + 首次扫描）
+cd harness-manager
+npm install
+npm run hm -- deploy . https://github.com/cxyzjg/harness-manager.git
+
+# 3. 启动本机控制面
+npm run hm -- serve      # → http://localhost:8787
 ```
 
-该脚本**只读**：通过 ssh 拉取各机 `docs/STATUS-<host>.md`，聚合成全局视图。
-**不做任何远程变更**——enable/disable/move 都由各机管理员在本地执行 `apply.sh`。
+每台机器会生成自己的：
+- `~/.harness-manager/`（本机缓存/配置）
+- `docs/STATUS-<host>.md`（本机 Inventory）
+- 本机各自的 skills/会话/调用链/token 数据
+
+> 各机之间**不共享数据**。若多台机器需要同一套技能/决策，它们从同一仓库拉取即可
+> （`git pull` / `pi update`），本机数据仍各自独立。
 
 ## 5. 常见问题
 

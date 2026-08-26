@@ -12,7 +12,7 @@
 - **共享扩展 / 自定义工具**
 - **目录（Catalog）**：每个资源的来源、状态（active / duplicate-of / superseded / candidate）、归属（全局/项目）、场景→技能映射、去重决策
 - **清单（Inventory）**：每台机器实际装了什么（`STATUS-<hostname>.md`）
-- **脚本**：只读盘点、候选重复、fleet 汇总、带 dry-run 的变更
+- **脚本**：只读盘点、候选重复、带 dry-run 的变更、快速部署
 - **文档**：索引、决策记录、多机安装/更新/迁移指南
 
 ## 快速上手
@@ -54,8 +54,7 @@ npm run hm -- stats      # 上下文规模 + 工具统计
 npm run hm -- serve     # 启动 Web 控制面 → http://localhost:8787
 npm run hm -- apply disable pi:global:code-review duplicate-of:review   # 管理操作(dry-run)
 npm run hm -- apply disable pi:global:code-review duplicate-of:review -y  # 确认执行
-npm run hm -- fleet host1 host2          # 多机只读汇总
-npm run hm -- fleet-diff host1 host2     # 两机资源差异
+npm run hm -- deploy [repoPath] [repoUrl] # 新服务器快速部署
 npx vitest run            # 跑测试
 ```
 
@@ -73,11 +72,14 @@ npx vitest run            # 跑测试
 > **默认全局**；仅当能力**只对特定项目 / 项目类型有价值**时才放项目。
 > 项目级资源（如 `hb-ultra` 的 `.pi/skills/`、`.claude/skills/`）纳入索引盘点。
 
-## 多机使用
+## 多服务器使用（每机独立）
 
-- **各机自治**：每台服务器自己 clone / install，跑 `scan.sh` 产出本机 `STATUS-<host>.md`
-- **fleet 汇总（只读）**：`./scripts/scan-fleet.sh` 通过 ssh 聚合各机 inventory → 全局视图，**只读不写**
-- **变更只在各机本地**：`apply.sh` 默认 dry-run，人工确认后才生效；不跨机自动改配置
+harness-manager 是**可分发**的：每台服务器数据独立，无需跨机同步/汇总。
+
+- **快速部署**：新服务器上 `git clone` → `npm install` → `npm run hm -- deploy` → `hm serve`
+- **各机自治**：每台机管理自己的 skills/会话/调用链/token，数据存 `~/.harness-manager/`
+- **共享内容**：技能/扩展/决策/脚本随仓库分发，多机 `git pull` / `pi update` 获取更新，本机数据仍独立
+- **变更只在各机本地**：`apply` 默认 dry-run，人工确认后才生效
 
 详见 [`docs/INSTALL.md`](docs/INSTALL.md)。
 
@@ -93,11 +95,10 @@ harness-manager/
 ├── docs/
 │   ├── INDEX.md                 # Catalog 总索引 + 场景→技能映射
 │   ├── DECISIONS.md             # 去重/归属决策记录
-│   ├── INSTALL.md               # 多机安装/更新/迁移指南
+│   ├── INSTALL.md               # 多服务器部署/更新/迁移指南
 │   └── STATUS-<host>.md         # Inventory 本机快照（脚本生成）
 ├── scripts/
 │   ├── scan.sh                  # 只读盘点本机
-│   ├── scan-fleet.sh            # 只读汇总多机
 │   └── apply.sh                 # 变更命令（dry-run+确认）
 └── templates/
     └── settings.example.json    # 机器级配置模板

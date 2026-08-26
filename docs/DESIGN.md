@@ -15,7 +15,7 @@ pi、Claude Code、Codex 等 AI agent 工具的 skills、工具、扩展、会�
 
 1. **资源冗余**：技能过多导致重复/冲突 → 去重、消歧、统一目录
 2. **归属不清**：场景→技能归属不清 → 全局/项目/跨 harness 划分与映射
-3. **共享复用**：pi / Claude Code / 多项目 / 多服务器 / 多用户共用 → 单源分发 + 多机复用
+3. **共享复用**：pi / Claude Code / 多项目 / 多服务器 / 多用户共用 → 单源分发 + 多服务器快速部署
 4. **会话与调用链**：会话管理、调用链路调试、问题排查 → 可视化调用轨迹、token/上下文/记忆监控
 
 ## 2. 范围
@@ -32,7 +32,7 @@ pi、Claude Code、Codex 等 AI agent 工具的 skills、工具、扩展、会�
 | Token | 会话中的 model/token 事件（pi）、CC 的 cost/usage | ◐ 部分 | 需统一口径 |
 | 上下文 | 会话消息序列、compaction | ◐ 部分 | 规模估算 |
 | 记忆/项目规范 | `AGENTS.md`/`CLAUDE.md`/`memory.md`/`plans/` | ✅ 文件 | 长期 + 短期 |
-| 多机 | 各机 inventory | ✅ 文件 | fleet 汇总 |
+| 多服务器 | 各机独立 inventory | ✅ 文件 | 每机独立部署（无跨机同步） |
 
 ### 不管理（边界）
 - 不自动修改各 harness 的**安全级配置**（trust、权限、密钥）——只读或需显式确认
@@ -47,7 +47,7 @@ pi、Claude Code、Codex 等 AI agent 工具的 skills、工具、扩展、会�
 │  - 技能管理: 去重候选 / 全局-项目归属 / 启停            │
 │  - 会话与调用链: 轨迹图 / 调试 / 检索                  │
 │  - 记忆/规范: 查看/编辑/模板化                         │
-│  - 多机: fleet 汇总视图                               │
+│  - 多服务器: 每机独立部署视图                            │
 └──────────────┬──────────────────────────────────────┘
                │ HTTP/WS
 ┌──────────────▼──────────────────────────────────────┐
@@ -74,7 +74,7 @@ pi、Claude Code、Codex 等 AI agent 工具的 skills、工具、扩展、会�
   屏蔽三端差异
 - **适配器层**：每端一个 adapter，负责"读文件 / 订阅事件 / 转换为统一模型"
 - **采集层**：定时扫描文件 + 实时事件订阅（pi 用 `pi.on("tool_call")` 等；CC/Codex 用文件增量 + 可选 hook）
-- **分析层**：调用链树重建、token 聚合、去重候选、记忆检索、fleet 汇总
+- **分析层**：调用链树重建、token 聚合、去重候选、记忆检索
 - **管理操作层**：所有写操作走"dry-run → 确认 → 执行"，写各 harness 配置/目录
 - **服务/展示层**：本地 HTTP 服务 + Web 前端；CLI 作为同等入口
 
@@ -112,17 +112,17 @@ pi、Claude Code、Codex 等 AI agent 工具的 skills、工具、扩展、会�
 - 记忆与项目规范统一视图（AGENTS.md/CLAUDE.md/memory.md/plans）
 - 模板化：从现有规范生成模板，应用到新项目
 
-### FR-5 多机 fleet
-- 各机 inventory 汇总
-- 全局资源视图（哪些机装了哪些技能/扩展）
-- 差异对比（A 机与 B 机的配置差异）
+### FR-5 多服务器部署
+- 一键部署（`hm deploy`）：clone/安装/初始化/首次扫描
+- 每机数据独立，无跨机同步/汇总
+- 共享内容随仓库分发（`git pull` / `pi update`）
 
 ### FR-6 可视化页面
 - 仪表盘（资源/会话/token 总览）
 - 技能管理页（去重候选、归属、启停）
 - 会话与调用链页（轨迹图、调试）
 - 记忆/规范页
-- 多机视图
+- 部署到新服务器视图
 
 ### FR-7 安装与分发
 - `pi install git:...` 安装插件本体
@@ -144,22 +144,20 @@ pi、Claude Code、Codex 等 AI agent 工具的 skills、工具、扩展、会�
 - **M2 分析层**：调用链重建、token 统计、去重检测、记忆检索
 - **M3 服务与 Web**：本地 HTTP + 可视化页面（只读展示）
 - **M4 管理操作**：写操作（启停/迁移/接线/清理）dry-run + 确认
-- **M5 多机**：fleet 汇总 + 差异对比
+- **M5 多服务器部署**：一键部署 + 每机独立
 
 ## 7. 当前进度
 
 - [x] 数据面核实（pi/CC/Codex 会话结构、pi extension 事件能力）
 - [x] 资源管理骨架（skills/工具/项目级/去重候选/决策）
-- [x] 脚本（scan/apply/fleet，只读 + dry-run 变更）
+- [x] 脚本（scan/apply，只读 + dry-run 变更）
 - [x] pi 包安装（本地路径）
 - [x] **M1 数据层 + CLI**：三端适配器、统一 Schema、调用链重建、token 聚合、去重候选、记忆读取；`hm` 子命令（scan/resources/sessions/trace/slowest/token/dedupe/memories/freq）；8 个单元测试；tsc 编译通过
 - [x] **M2 分析层**：会话检索(search)、token 趋势(trend)、时间线(timeline)、上下文规模+工具统计+CC慢调用(stats)；CC 会话 durationMs 计算；cwd 反推修复；17 个单元测试
 - [x] **M3 服务与 Web 展示**：本地 HTTP 服务(`hm serve`, localhost:8787) + 单页可视化(仪表盘/资源/会话/调用链/token/去重/统计)；JSON API 全部通过 curl 冒烟验证
 - [x] **M4 管理操作**：`apply.ts` 启停/迁移（dry-run→确认→落盘）；`hm apply <op> <id> [reason] [-y]`；Web `POST /api/apply` + 资源页操作按钮；写 DECISIONS.md + 更新缓存状态，不删文件不改 trust/gate/settings；21 个单元测试
-- [x] **M5 多机**：`fleet.ts` ssh 只读汇总各机（cache.json/STATUS/探测三档降级）+ `diffFleet` 差异对比；`hm fleet` / `hm fleet-diff`；Web `GET /api/fleet` + 多机视图页；23 个单元测试
+- [x] **M5 多服务器部署**：`deploy.ts` 一键部署（clone/npm install/生成配置/首次扫描）；`hm deploy` 命令；每机数据独立无跨机同步；21 个单元测试
 - [ ] 全部里程碑完成 — 待整体验收
-- [ ] M4 管理操作（启停/迁移/接线，dry-run + 确认）
-- [ ] M5 多机（fleet 汇总 + 差异对比）
 
 ## 8. 待确认
 

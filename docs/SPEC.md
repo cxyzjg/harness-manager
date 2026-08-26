@@ -24,11 +24,11 @@
 
 - **数据模型层**统一三端差异（Resource / Session / CallTrace / ToolCall / Memory / TokenUsage）
 - **适配器层**分别对接 pi、Claude Code、Codex，读取会话/配置/资源文件，并订阅实时事件（pi extension hook）
-- **分析层**重建调用链树、聚合 token、检测去重候选、检索记忆、汇总多机 fleet
+- **分析层**重建调用链树、聚合 token、检测去重候选、检索记忆
 - **管理操作层**所有写操作走 dry-run → 确认 → 执行
-- **Web 控制面**提供仪表盘、技能管理、会话与调用链、记忆/规范、多机视图
+- **Web 控制面**提供仪表盘、技能管理、会话与调用链、记忆/规范、多服务器部署视图
 - **CLI** 作为同等能力的命令行入口
-- 与既有 `harness-manager` 仓库（skills/ 单源、docs/ 目录与决策、scripts/ scan/apply/fleet）**集成**：Web 展示的就是同一份 Catalog/Inventory，管理操作复用 apply 的 dry-run 语义
+- 与既有 `harness-manager` 仓库（skills/ 单源、docs/ 目录与决策、scripts/ scan/apply）**集成**：Web 展示的就是同一份 Catalog/Inventory，管理操作复用 apply 的 dry-run 语义
 
 ## User Stories
 
@@ -50,7 +50,7 @@
 16. 作为用户，我想看到上下文规模趋势与压缩点（compaction），以便判断是否过长。
 17. 作为用户，我想统一查看 AGENTS.md / CLAUDE.md / memory.md / plans 等记忆与规范文件，以便长期记忆可管理。
 18. 作为用户，我想从现有规范生成模板并应用到新项目，以便快速初始化项目规范。
-19. 作为用户，我想汇总多台机器的 inventory 并在一个视图对比差异，以便多机一致性与排障。
+19. 作为用户，我想在一台新服务器上一键部署完整功能，以便快速在任意服务器使用（每机数据独立，无需跨机同步）。
 20. 作为用户，我想让所有写操作都有 dry-run 预览和显式确认，以便不误改配置。
 21. 作为用户，我想系统不触碰 trust/密钥/权限等安全级配置，以便安全底线不被破坏。
 22. 作为用户，我想系统能增量采集避免重复读大文件，以便性能可接受。
@@ -60,7 +60,7 @@
 ## Implementation Decisions
 
 - **技术栈**：Node.js + TypeScript。理由：与 pi 同栈（`@earendil-works/pi-coding-agent` 提供 extension API/类型）；三端会话均为 JSON(L)，解析友好；可打包为 CLI 与 daemon。
-- **进程形态**：`hm serve`（常驻 daemon，本地 HTTP + WS）与 `hm` 子命令（`scan/list/trace/token/memory/fleet`）共用同一核心，双入口。
+- **进程形态**：`hm serve`（常驻 daemon，本地 HTTP + WS）与 `hm` 子命令（`scan/list/trace/token/memory/deploy`）共用同一核心，双入口。
 - **统一 Schema（来自原型思考，决策核心）**：
   ```ts
   interface HarnessResource { id; name; kind: 'skill'|'tool'|'extension'|'project-skill';
@@ -79,7 +79,7 @@
 - **管理操作**：`apply` 统一为 `{dryRun: true} → {confirmed: true} → commit`，复用现有 `scripts/apply.sh` 语义。
 - **与既有资产集成**：Catalog = `docs/INDEX.md` + `docs/DECISIONS.md`；Inventory = `docs/STATUS-<host>.md`；Web 与 CLI 读同一数据模型，不另起炉灶。
 - **存储**：采集结果落 `~/.harness-manager/`（缓存/索引/配置），原始文件只读。
-- **配置**：`~/.harness-manager/config.json`（监听端口、启用 harness、扫描间隔、SSH fleet 配置）。
+- **配置**：`~/.harness-manager/config.json`（监听端口、启用 harness、扫描间隔）。
 
 ## Testing Decisions
 
@@ -92,7 +92,7 @@
 
 - 不自动修改 trust / 密钥 / 权限等安全级配置（仅只读查看或显式确认）
 - 不替换各 harness 自带的会话/记忆存储（只读分析 + 受控归档）
-- 不做云端/多用户账户体系（多机通过 ssh fleet 只读汇总）
+- 不做云端/多用户账户体系（多服务器通过快速部署，每机数据独立）
 - 不实现完整插件市场/在线商店（资源分发走 git/npm 包）
 - 不实现实时协作编辑
 
@@ -100,5 +100,5 @@
 
 - 三端数据面已核实：pi `sessions/*.jsonl`（含 `toolCallId`/`parentId`）、CC `projects/*.jsonl`（含 `tool_use`）、Codex `~/.codex`（当前空）。
 - 当前 `hb-ultra` 项目已暴露"项目级 code-review vs 全局 code-review"的跨层重叠案例，可作为首个去重决策的真实测试用例。
-- 里程碑建议：M1 数据层+CLI → M2 分析层 → M3 Web 只读 → M4 写操作 → M5 多机。
+- 里程碑建议：M1 数据层+CLI → M2 分析层 → M3 Web 只读 → M4 写操作 → M5 多服务器部署。
 - 待拍板：Q23 形态 / Q24 读取 / Q25 记忆语义 / Q26 边界（本轮已基本对齐：本地 Web + 文件读取 + hook、长期+短期记忆、M1 起步建议）。

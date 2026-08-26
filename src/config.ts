@@ -10,7 +10,6 @@ export interface Config {
   enabledHarnesses: ("pi" | "claude" | "codex")[];
   scanIntervalMs: number; // 采集间隔
   dataDir: string; // 缓存/索引目录
-  ssh?: { hosts?: string[]; remoteDir?: string; sshKey?: string }; // fleet
 }
 
 export function dataDir(): string {
