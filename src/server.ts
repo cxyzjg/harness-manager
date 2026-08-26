@@ -79,6 +79,14 @@ const routes: Record<string, (url: URL) => Promise<unknown> | unknown> = {
       ? { cs: contextStats(cached.sessions), ts: toolStats(cached.sessions) }
       : {},
   "/api/memories": () => cached?.memories ?? [],
+  "/api/fleet": (url) => {
+    const hosts = url.searchParams.get("hosts")?.split(",").filter(Boolean) ?? [];
+    if (!hosts.length) return { hosts: [], generatedAt: new Date().toISOString(), hint: "请在 URL 传 hosts=host1,host2" };
+    // 动态导入避免启动时加载 ssh 依赖
+    return import("./fleet.js").then(({ collectFleet }) =>
+      collectFleet(hosts, { sshKey: url.searchParams.get("key") ?? undefined })
+    );
+  },
 };
 
 export function startServer(): void {

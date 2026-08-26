@@ -68,7 +68,11 @@ cd ~/harness-manager && git pull
 前提：本机能 ssh 到各目标机，且各目标机已安装本仓库并跑过 `scan.sh`。
 
 ```bash
-./scripts/scan-fleet.sh host1 host2 host3
+./scripts/scan-fleet.sh host1 host2 host3   # bash 版（只读）
+# 或 TS 版（功能更全）:
+npm run hm -- fleet host1 host2 host3        # 汇总
+npm run hm -- fleet-diff host1 host2         # 差异对比
+# 或 Web 页: hm serve → 多机页输入主机列表
 ```
 
 该脚本**只读**：通过 ssh 拉取各机 `docs/STATUS-<host>.md`，聚合成全局视图。

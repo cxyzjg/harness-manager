@@ -56,6 +56,7 @@
   <button data-page="dedupe">去重候选</button>
   <button data-page="token">Token 趋势</button>
   <button data-page="stats">统计</button>
+  <button data-page="fleet">多机</button>
 </nav>
 <main id="main">
   <div class="cards" id="cards"></div>
@@ -189,7 +190,34 @@ async function loadStats() {
     </div>`;
 }
 
-const pages = { dashboard: loadDashboard, resources: loadResources, sessions: loadSessions, dedupe: loadDedupe, token: loadToken, stats: loadStats };
+const pages = { dashboard: loadDashboard, resources: loadResources, sessions: loadSessions, dedupe: loadDedupe, token: loadToken, stats: loadStats, fleet: loadFleet };
+
+async function loadFleet() {
+  const def = window.localStorage.getItem("hm-fleet-hosts") || "";
+  const input = prompt("输入主机列表(逗号分隔, 如 server1,server2)，或留空查看默认配置", def);
+  if (input === null) return;
+  window.localStorage.setItem("hm-fleet-hosts", input);
+  const hosts = input.split(",").map((s) => s.trim()).filter(Boolean);
+  if (!hosts.length) { $("#content").innerHTML = `<div class="panel"><p class="muted">未输入主机。</p><p>多机汇总需要：<br>1. 各机已安装 harness-manager 并跑过 <code>hm scan</code><br>2. 本机能 ssh 到各机（免密或配置 key）</p></div>`; return; }
+  $("#content").innerHTML = `<div class="panel"><h2>正在汇总 ${hosts.length} 台主机…</h2><p class="muted">ssh 只读拉取中（每台最多 30s）</p></div>`;
+  try {
+    const fr = await api("/api/fleet?hosts=" + encodeURIComponent(hosts.join(",")));
+    const rows = (fr.hosts || []).map((h) => `<tr>
+      <td>${esc(h.name)}</td>
+      <td>${h.error ? `<span class="tag red">✗</span>` : h.reachable ? `<span class="tag green">✓</span>` : `<span class="tag yellow">?</span>`}</td>
+      <td>${h.error ? esc(h.error) : esc(h.result ? `${h.result.resources?.length} 资源 / ${h.result.sessions?.length} 会话` : (h.summary || ""))}</td>
+    </tr>`).join("");
+    const ok = (fr.hosts || []).filter((h) => h.reachable && h.result);
+    let union = "";
+    if (ok.length >= 2) {
+      const all = new Set(ok.flatMap((h) => (h.result.resources || []).map((r) => `${r.source}:${r.name}`)));
+      union = `<div class="panel"><h2>跨机资源并集</h2><p class="muted">${all.size} 个唯一资源，${ok.length} 台机可对比</p></div>`;
+    }
+    $("#content").innerHTML = `<div class="panel"><h2>多机汇总</h2><table><thead><tr><th>主机</th><th>状态</th><th>数据</th></tr></thead><tbody>${rows}</tbody></table></div>${union}`;
+  } catch (e) {
+    $("#content").innerHTML = `<div class="panel error">汇总失败: ${esc((e && e.message) || e)}</div>`;
+  }
+}
 
 async function applyRes(type, btn) {
   const id = btn.dataset.id, name = btn.dataset.name;

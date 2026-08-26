@@ -54,6 +54,8 @@ npm run hm -- stats      # 上下文规模 + 工具统计
 npm run hm -- serve     # 启动 Web 控制面 → http://localhost:8787
 npm run hm -- apply disable pi:global:code-review duplicate-of:review   # 管理操作(dry-run)
 npm run hm -- apply disable pi:global:code-review duplicate-of:review -y  # 确认执行
+npm run hm -- fleet host1 host2          # 多机只读汇总
+npm run hm -- fleet-diff host1 host2     # 两机资源差异
 npx vitest run            # 跑测试
 ```
 

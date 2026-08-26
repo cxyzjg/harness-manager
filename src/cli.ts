@@ -203,6 +203,55 @@ async function main(): Promise<void> {
       }
       break;
     }
+    case "fleet": {
+      // hm fleet <host1> <host2> ... [--ssh-key K] [--remote-dir D]
+      const { collectFleet } = await import("./fleet.js");
+      const hostArgs = args.filter((a) => !a.startsWith("--"));
+      const keyIdx = args.indexOf("--ssh-key");
+      const dirIdx = args.indexOf("--remote-dir");
+      const sshKey = keyIdx >= 0 ? args[keyIdx + 1] : undefined;
+      const remoteDir = dirIdx >= 0 ? args[dirIdx + 1] : undefined;
+      if (!hostArgs.length) return console.log("用法: hm fleet <host1> <host2> ... [--ssh-key K] [--remote-dir D]");
+      console.log(`汇总 ${hostArgs.length} 台主机（只读）...`);
+      const fr = collectFleet(hostArgs, { sshKey, remoteDir });
+      if (useJson) return out(fr);
+      for (const h of fr.hosts) {
+        const status = h.error ? `✗ ${h.error}` : h.reachable ? `✓ ${h.result?.resources.length ?? 0} 资源 / ${h.result?.sessions.length ?? 0} 会话` : `? 无数据`;
+        console.log(`${h.name.padEnd(20)} ${status}`);
+        if (h.summary) console.log(`    ${h.summary.slice(0, 100)}`);
+      }
+      // 汇总
+      const ok = fr.hosts.filter((h) => h.reachable && h.result);
+      if (ok.length >= 2) {
+        const all = ok.flatMap((h) => h.result!.resources.map((r) => `${r.source}:${r.name}`));
+        const uniq = new Set(all);
+        console.log(`\n跨机资源并集: ${uniq.size}（${ok.length} 台机可对比）`);
+      }
+      break;
+    }
+    case "fleet-diff": {
+      // hm fleet-diff <hostA> <hostB> [--ssh-key K]
+      const { collectFleet, diffFleet } = await import("./fleet.js");
+      const hostArgs = args.filter((a) => !a.startsWith("--"));
+      if (hostArgs.length < 2) return console.log("用法: hm fleet-diff <hostA> <hostB>");
+      const keyIdx = args.indexOf("--ssh-key");
+      const sshKey = keyIdx >= 0 ? args[keyIdx + 1] : undefined;
+      const fr = collectFleet(hostArgs, { sshKey });
+      const [a, b] = fr.hosts;
+      if (!a.result || !b.result) {
+        console.log(`无法对比: ${a.name}=${a.error ?? "无数据"}, ${b.name}=${b.error ?? "无数据"}`);
+        return;
+      }
+      const d = diffFleet(a.result, b.result);
+      if (useJson) return out(d);
+      console.log(`${a.name}: ${d.hostA} 资源 | ${b.name}: ${d.hostB} 资源 | 共有 ${d.common}`);
+      console.log(`\n仅 ${a.name} 有:`);
+      d.onlyA.forEach((k) => console.log(`  + ${k}`));
+      console.log(`\n仅 ${b.name} 有:`);
+      d.onlyB.forEach((k) => console.log(`  + ${k}`));
+      console.log(`\n会话数差: ${d.sessionDiff}`);
+      break;
+    }
     case "apply": {
       // hm apply enable <resourceId> [reason]   (先 dry-run，-y 确认)
       // hm apply disable <resourceId> [reason]
@@ -257,6 +306,9 @@ function helpText(): string {
   hm trend              token 趋势(按项目/模型)
   hm timeline <id>     会话时间线
   hm stats             上下文规模 + 工具统计 + CC慢调用
+  hm apply <enable|disable|move> <id> [reason] [-y]   管理操作(dry-run→确认)
+  hm fleet <host...>   多机只读汇总
+  hm fleet-diff <a> <b> 两机资源差异对比
   hm serve             启动 Web 控制面 (localhost:8787)
 `;
 }

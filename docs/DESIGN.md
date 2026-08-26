@@ -156,7 +156,8 @@ pi、Claude Code、Codex 等 AI agent 工具的 skills、工具、扩展、会�
 - [x] **M2 分析层**：会话检索(search)、token 趋势(trend)、时间线(timeline)、上下文规模+工具统计+CC慢调用(stats)；CC 会话 durationMs 计算；cwd 反推修复；17 个单元测试
 - [x] **M3 服务与 Web 展示**：本地 HTTP 服务(`hm serve`, localhost:8787) + 单页可视化(仪表盘/资源/会话/调用链/token/去重/统计)；JSON API 全部通过 curl 冒烟验证
 - [x] **M4 管理操作**：`apply.ts` 启停/迁移（dry-run→确认→落盘）；`hm apply <op> <id> [reason] [-y]`；Web `POST /api/apply` + 资源页操作按钮；写 DECISIONS.md + 更新缓存状态，不删文件不改 trust/gate/settings；21 个单元测试
-- [ ] M5 多机（fleet 汇总 + 差异对比）
+- [x] **M5 多机**：`fleet.ts` ssh 只读汇总各机（cache.json/STATUS/探测三档降级）+ `diffFleet` 差异对比；`hm fleet` / `hm fleet-diff`；Web `GET /api/fleet` + 多机视图页；23 个单元测试
+- [ ] 全部里程碑完成 — 待整体验收
 - [ ] M4 管理操作（启停/迁移/接线，dry-run + 确认）
 - [ ] M5 多机（fleet 汇总 + 差异对比）
 
