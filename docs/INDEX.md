@@ -26,10 +26,10 @@ _最后更新: 2026-08-26_
 
 | 技能 | 来源 | 状态 | 归属 | 场景 |
 |---|---|---|---|---|
-| `grilling` / `grill-me` / `grill-with-docs` | mattpocock | candidate | 全局 | 设计/计划压力测试 |
+| `grilling` / `grill-me` / `grill-with-docs` | mattpocock | candidate → `grilling` 主用 | 全局 | 设计/计划压力测试 |
 | `code-review` | mattpocock | candidate | 全局 | review 分支/PR |
 | `codebase-design` | mattpocock | active | 全局 | 模块/接口设计 |
-| `diagnosing-bugs` | mattpocock | candidate | 全局 | 诊断 bug/性能 |
+| `diagnosing-bugs` | mattpocock | active *(建议主用)* | 全局 | 诊断 bug/性能 |
 | `domain-modeling` | mattpocock | active | 全局 | 领域模型/CONTEXT/ADR |
 | `prototype` | mattpocock | active | 全局 | 一次性原型验证 |
 | `research` | mattpocock | active | 全局 | 查证/资料收集 |
@@ -38,7 +38,7 @@ _最后更新: 2026-08-26_
 | `setup-pre-commit` | mattpocock | active | 全局 | pre-commit 配置 |
 | `setup-ts-deep-modules` | mattpocock | active | 全局 | TS 深模块 |
 | `migrate-to-shoehorn` | mattpocock | active | 全局 | 测试 as→shoehorn |
-| `tdd` | mattpocock | candidate | 全局 | TDD |
+| `tdd` | mattpocock | active *(建议主用)* | 全局 | TDD |
 | `teach` | mattpocock | active | 全局 | 教学 |
 | `to-questionnaire` / `to-spec` / `to-tickets` | mattpocock | active | 全局 | 需求→问卷/规格/工单 |
 | `implement` / `implement-spec` | mattpocock | active | 全局 | 实现 |
@@ -68,14 +68,14 @@ _最后更新: 2026-08-26_
 | `log` / `nextsteps` | pi-superpowers | active | 全局 | 构建计划日志/下一步 |
 | `optimise` | pi-superpowers | active | 全局 | 优化扫描 |
 | `restart` / `wrapup` | pi-superpowers | active | 全局 | 恢复会话/收尾 |
-| `review` | pi-superpowers | candidate | 全局 | review |
+| `review` | pi-superpowers | candidate → `duplicate-of:code-review` (建议) | 全局 | review |
 | `rules` | pi-superpowers | active | 全局 | 项目规则 |
-| `scaffold` | pi-superpowers | candidate | 全局 | 项目脚手架 |
+| `scaffold` | pi-superpowers | active *(建议各留)* | 全局 | 项目脚手架 |
 | `security` | pi-superpowers | active | 全局 | 安全审计 |
 | `staging` | pi-superpowers | active | 全局 | 部署 staging |
 | `status` | pi-superpowers | active | 全局 | 健康快照 |
-| `systematic-debugging` | pi-superpowers | candidate | 全局 | 诊断 bug |
-| `test-driven-development` | pi-superpowers | candidate | 全局 | TDD |
+| `systematic-debugging` | pi-superpowers | candidate → `superseded-by:diagnosing-bugs` (建议) | 全局 | 诊断 bug |
+| `test-driven-development` | pi-superpowers | candidate → `superseded-by:tdd` (建议) | 全局 | TDD |
 | `using-git-worktrees` | pi-superpowers | active | 全局 | git worktree |
 | `verification-before-completion` | pi-superpowers | active | 全局 | 完成前验证 |
 | `writing-plans` | pi-superpowers | active | 全局 | 写计划 |
@@ -92,9 +92,31 @@ _最后更新: 2026-08-26_
 
 | 项目 | 资源 | 位置 | 状态 |
 |---|---|---|---|
-| `hb-ultra` | `.pi/skills/`、`.claude/skills/`、CLAUDE.md | `C:/working/rzx_project/hb-ultra` | active |
+| `hb-ultra` | `.pi/skills/`: `hb-module-spec` | `C:/working/rzx_project/hb-ultra/.pi/skills` | active |
+| `hb-ultra` | `.claude/skills/`: `api-design-review`, `code-review`, `db-migration`, `git-conventional`, `perf-review`, `requirements-analysis`, `security-audit`, `specification-validation`, `test-strategy` | `C:/working/rzx_project/hb-ultra/.claude/skills` | active |
+| `hb-ultra` | CLAUDE.md | `C:/working/rzx_project/hb-ultra` | active |
 | `pi-harness` | 仅 `pi` 文件 | `C:/working/owner_project/pi-harness` | 待盘 |
 | `deepseek-harness` | 空 | `C:/working/owner_project/deepseek-harness` | 待盘 |
+
+> **跨层重叠观察**：hb-ultra 项目级 `.claude/skills/code-review` 与全局 `code-review`、`review` 存在同名/功能重叠。
+> 项目级优先于全局（在信任项目内），需在 DECISIONS.md 记录决策。
+
+### 3.5 来源：Claude Code 侧（~/.claude/skills）
+
+> 跨 harness 盘点：这些是 Claude Code 独立加载的技能，与 pi 侧**不重叠**（任务执行类）。
+
+| 技能 | 来源 | 状态 | harness | 场景 |
+|---|---|---|---|---|
+| `cost` | claude | active | CC | 用量/成本 |
+| `learned` | claude | active | CC | 会话学习沉淀 |
+| `memory` | claude | active | CC | 记忆 |
+| `resume` | claude | active | CC | 恢复会话 |
+| `run-all-tasks` | claude | active | CC | 批量跑任务 |
+| `run-tasks` | claude | active | CC | 跑任务 |
+| `task-status` | claude | active | CC | 任务状态 |
+
+> **跨 harness 接线说明**：如需让某技能在 pi 与 CC 共用，将技能放单源（harness-manager `skills/`），
+> 并在 `~/.claude/settings.json` 的 `skills` 数组加入该目录引用。此属机器级变更，按需确认后执行。
 
 ---
 
@@ -107,9 +129,9 @@ _最后更新: 2026-08-26_
 | TDD / 测试驱动 | `tdd` | `test-driven-development` |
 | 设计/计划压力测试 | `grilling` | `grill-me`、`grill-with-docs` |
 | 项目脚手架 | `scaffold` | `scaffold-exercises` |
-| 写计划 | `writing-plans` | — |
+| 写计划 | `writing-plans` | `wayfinder`、`to-tickets` |
 | 需求澄清 | `wait-what`、`to-questionnaire` | — |
-| 需求→规格/工单 | `to-spec`、`to-tickets` | — |
+| 需求→规格/工单 | `to-spec`、`to-tickets` | `implement`、`implement-spec` |
 | 头脑风暴 | `brainstorming` | `grilling` |
 | 领域建模 | `domain-modeling` | — |
 | 技术债审计 | `debt` | `optimise` |
@@ -117,12 +139,14 @@ _最后更新: 2026-08-26_
 | 部署 staging | `staging` | — |
 | 完成前验证 | `verification-before-completion` | — |
 | 资源管理 | `manage-skills` | — |
+| 跨 harness 任务执行（CC 侧） | `run-tasks`、`task-status` | `resume`、`memory` |
 
 > 说明：上述 `candidate` 状态 = 待拍板。拍板后移入 `DECISIONS.md` 并更新状态。
 
 ## 5. 待办
 
-- [ ] 对 3.1/3.2 的 candidate 逐个拍板，写入 DECISIONS.md
-- [ ] 确认每个技能是否要在 Claude Code 侧接线（~/.claude/skills 引用）
+- [x] 对 3.1/3.2 的 candidate 拍板，写入 DECISIONS.md（见 G1-G7）
+- [x] 记录 Claude Code 侧（~/.claude/skills）7 个技能的去重关系（见 3.5，与 pi 侧不重叠）
+- [ ] 确认每个技能是否要在 Claude Code 侧接线（~/.claude/settings.json 加 skills 引用）
 - [ ] 决定是否将存活技能物理迁入本仓库 `skills/`
-- [ ] 记录 Claude Code 侧（~/.claude/skills）7 个技能的去重关系
+- [ ] 跨 harness：单源技能在 CC 侧接线后验证加载

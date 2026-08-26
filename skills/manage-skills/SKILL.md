@@ -25,6 +25,10 @@ description: 管理 pi / harness 资源（skills、扩展、工具、项目级�
 ### R2 跨 harness 共享
 > 技能**单源**存放（harness-manager 的 `skills/`），pi 与 Claude Code 都**引用同一路径**。
 > 改一处，两端生效。不要各端各存一份副本。
+> 接线：
+> - pi 侧：仓库作为包安装（`pi install git:...` 或本地路径）
+> - Claude Code 侧：在 `~/.claude/settings.json` 的 `skills` 数组加入单源目录引用
+> - 项目级：在项目 `.pi/skills` / `.claude/skills` 放项目专属技能（只在信任项目内生效）
 
 ### R3 去重判定
 - **同名** = 重复（机器可判定：扫描各来源取交集）
@@ -71,6 +75,20 @@ description: 管理 pi / harness 资源（skills、扩展、工具、项目级�
 1. 新机器：见 `docs/INSTALL.md`（clone 或 `pi install`）
 2. 各机跑 `scan.sh` 生成自己的 `STATUS-<host>.md`
 3. 需要全局视图：`./scripts/scan-fleet.sh host1 host2 ...`（只读）
+
+### 流程 5：跨 harness 接线（pi + Claude Code 共用）
+1. 确认该技能确实需要双端共用（否则留在单侧）
+2. 把技能放入单源 `skills/<name>/`（或确认已在）
+3. pi 侧：确认仓库已安装为包（`pi list` 能看到）
+4. Claude Code 侧：在 `~/.claude/settings.json` 的 `skills` 数组加入单源目录引用
+   （属机器级变更，需人工确认后执行）
+5. 验证两端都能加载，更新 `docs/INDEX.md` 3.5 节
+
+### 流程 6：项目级资源盘点
+1. 对每个信任项目，盘点其 `.pi/skills` 与 `.claude/skills`
+2. 记录到 `docs/INDEX.md` 3.4 节
+3. 检查与全局技能的同名/功能重叠（如项目级 code-review vs 全局 code-review）
+4. 决策写入 `docs/DECISIONS.md`（项目级默认优先于全局）
 
 ## 文档导航
 
