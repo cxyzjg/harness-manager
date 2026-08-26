@@ -78,7 +78,16 @@ async function main(): Promise<void> {
       if (!s) return console.log(`未找到会话 ${id}`);
       const tree = buildCallTree(s.tools);
       console.log(`会话 ${s.id} 调用链 (${s.tools.length} 次调用):`);
-      console.log(renderTree(tree));
+      // 平铺时按调用序号显示 + 输入摘要 + 耗时
+      if (tree.length === s.tools.length && tree.every((n) => n.children.length === 0)) {
+        s.tools.forEach((t, i) => {
+          const dur = t.durationMs != null ? ` [${t.durationMs}ms]` : "";
+          const inp = summarize(t.input);
+          console.log(`${String(i + 1).padStart(3)}. ${t.name}${dur} ${inp}`);
+        });
+      } else {
+        console.log(renderTree(tree));
+      }
       break;
     }
     case "slowest": {
@@ -152,6 +161,15 @@ function helpText(): string {
   hm freq              工具调用频率
   hm serve             启动 Web 服务 (M3, 未实现)
 `;
+}
+
+/** 工具调用入参摘要（避免刷屏长文本） */
+function summarize(input: unknown): string {
+  if (input == null) return "";
+  const s = typeof input === "string" ? input : JSON.stringify(input);
+  if (!s) return "";
+  const oneLine = s.replace(/\s+/g, " ").trim();
+  return oneLine.length > 90 ? oneLine.slice(0, 90) + "…" : oneLine;
 }
 
 main().catch((e) => {

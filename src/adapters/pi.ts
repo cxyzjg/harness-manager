@@ -226,12 +226,12 @@ export function parsePiSession(path: string): Session | null {
         if (Array.isArray(content)) {
           for (const c of content) {
             if (c && (c as { type?: string }).type === "toolCall") {
-              const tc = c as { id?: string; name?: string; input?: unknown };
+              const tc = c as { id?: string; name?: string; input?: unknown; arguments?: unknown };
               tools.push({
                 id: tc.id ?? `tc-${tools.length}`,
                 parentId: ev.parentId ?? undefined,
                 name: tc.name ?? "unknown",
-                input: tc.input,
+                input: tc.arguments ?? tc.input,
                 startedAt: ev.timestamp,
               });
             }
