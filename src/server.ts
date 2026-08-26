@@ -91,6 +91,31 @@ const routes: Record<string, (url: URL) => Promise<unknown> | unknown> = {
       : {},
   "/api/memories": () => cached?.memories ?? [],
   "/api/live": () => import("./monitor/realtime.js").then(({ liveSnapshot }) => liveSnapshot()),
+  "/api/skill-info": (url) => {
+    const name = url.searchParams.get("name") ?? "";
+    return import("./analysis/skillDescriptions.js").then(({ skillInfo }) => skillInfo(name) ?? null);
+  },
+  "/api/suggest": (url) => {
+    const q = url.searchParams.get("q") ?? "";
+    return import("./analysis/skillDescriptions.js").then(({ allSkillInfos }) => {
+      const kw: [RegExp, string][] = [
+        [/审|review|检查代码/, "质量调试"],
+        [/bug|调试|排查|出错/, "质量调试"],
+        [/需求|想法|规划|该做|要什么/, "需求规划"],
+        [/设计|架构|模块/, "设计架构"],
+        [/写代码|开发|实现|编码/, "开发编码"],
+        [/进度|下一步|状态|部署/, "项目进度"],
+        [/交接|协作|并行|教/, "协作交接"],
+        [/写作|文档|计划|报告/, "沟通写作"],
+        [/技能|资源|安装|管理/, "系统工具"],
+      ];
+      const intent = q.toLowerCase();
+      let cat: string | undefined;
+      for (const [re, c] of kw) if (re.test(intent)) { cat = c; break; }
+      const c = cat ?? "系统工具";
+      return { category: c, suggestions: allSkillInfos().filter((i) => i.category === c).slice(0, 10) };
+    });
+  },
   "/api/outcome": () => (cached ? evaluateAll(cached.sessions) : []),
   "/api/health": () =>
     cached

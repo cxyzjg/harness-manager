@@ -122,7 +122,7 @@ async function loadResources() {
     const catTag = x.category ? `<span class="tag" style="background:#242933;color:var(--accent)">${esc(x.categoryIcon||"")} ${esc(x.category)}</span>` : "";
     return `<tr>
     <td><input type="checkbox" class="res-sel" value="${esc(x.id)}"></td>
-    <td>${esc(x.name)}</td>
+    <td><a href="#" onclick="showSkillInfo('${esc(x.name)}');return false;" title="查看中文说明">${esc(x.name)}</a></td>
     <td>${catTag}</td>
     <td>${tag(x.kind)}</td>
     <td>${esc(x.source)}:${esc(x.scope)}</td>
@@ -152,6 +152,25 @@ async function loadResources() {
 
 function selectedIds() {
   return [...document.querySelectorAll(".res-sel:checked")].map((el) => el.value);
+}
+
+async function showSkillInfo(name) {
+  const info = await api("/api/skill-info?name=" + encodeURIComponent(name));
+  if (!info) return toast(`未找到 ${name} 的中文说明`);
+  const overlay = document.getElementById("skill-modal");
+  if (!overlay) {
+    const div = document.createElement("div");
+    div.id = "skill-modal";
+    div.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;z-index:998";
+    document.body.appendChild(div);
+  }
+  document.getElementById("skill-modal").innerHTML = `<div style="background:var(--card);border:1px solid var(--line);border-radius:12px;padding:24px;max-width:520px;width:90%">
+    <h2>📌 ${esc(info.cnName)} <span class="muted" style="font-size:14px">${esc(info.name)}</span></h2>
+    <p class="muted" style="margin:8px 0">分类: ${esc(info.category)}</p>
+    <p style="margin:10px 0"><b>说明:</b> ${esc(info.oneLiner)}</p>
+    <p style="margin:10px 0"><b>用法:</b> ${esc(info.usage)}</p>
+    <button class="op" style="margin-top:12px;padding:6px 14px" onclick="document.getElementById('skill-modal').remove()">关闭</button>
+  </div>`;
 }
 
 async function checkNewSkills() {

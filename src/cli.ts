@@ -98,6 +98,59 @@ async function main(): Promise<void> {
       }
       break;
     }
+    case "skill": {
+      // hm skill <name> — 查技能中文说明
+      const { skillInfo, allSkillInfos } = await import("./analysis/skillDescriptions.js");
+      const name = args[0];
+      if (!name) {
+        console.log("技能中文说明库:");
+        const byCat = new Map<string, ReturnType<typeof allSkillInfos>>([]);
+        for (const info of allSkillInfos()) {
+          byCat.set(info.category, [...(byCat.get(info.category) ?? []), info]);
+        }
+        for (const [cat, list] of byCat) {
+          console.log(`\n${cat} (${list.length}):`);
+          list.forEach((i) => console.log(`  ${i.name} — ${i.cnName}: ${i.oneLiner}`));
+        }
+        break;
+      }
+      const info = skillInfo(name);
+      if (!info) return console.log(`未找到技能 ${name} 的中文说明（可能是未知技能或第三方包技能）`);
+      if (useJson) return out(info);
+      console.log(`📌 ${info.cnName} (${info.name})`);
+      console.log(`   分类: ${info.category}`);
+      console.log(`   说明: ${info.oneLiner}`);
+      console.log(`   用法: ${info.usage}`);
+      break;
+    }
+    case "suggest": {
+      // hm suggest <意图> — 按场景推荐技能
+      const { allSkillInfos } = await import("./analysis/skillDescriptions.js");
+      const { ALL_CATEGORIES } = await import("./analysis/skillCategories.js");
+      const intent = args.join(" ").toLowerCase();
+      if (!intent) return console.log("用法: hm suggest <意图>，如 'hm suggest 我要写代码'");
+      const kw: [RegExp, string][] = [
+        [/审|review|检查代码/, "质量调试"],
+        [/bug|调试|排查|出错/, "质量调试"],
+        [/需求|想法|规划|该做|要什么/, "需求规划"],
+        [/设计|架构|模块/, "设计架构"],
+        [/写代码|开发|实现|编码/, "开发编码"],
+        [/进度|下一步|状态|部署/, "项目进度"],
+        [/交接|协作|并行|教/, "协作交接"],
+        [/写作|文档|计划|报告/, "沟通写作"],
+        [/技能|资源|安装|管理/, "系统工具"],
+      ];
+      let matchedCat: string | undefined;
+      for (const [re, cat] of kw) {
+        if (re.test(intent)) { matchedCat = cat; break; }
+      }
+      const cat = matchedCat ?? "系统工具";
+      const list = allSkillInfos().filter((i) => i.category === cat);
+      console.log(`按意图 "${args.join(" ")}" 推荐 (${cat}):`);
+      list.forEach((i) => console.log(`  • ${i.name} — ${i.cnName}: ${i.oneLiner}`));
+      if (!matchedCat) console.log("  (未能识别场景，默认系统工具，可更具体描述)");
+      break;
+    }
     case "onboard": {
       // hm onboard — 手动触发：检测新技能 + 询问迁移
       const { detectNewSkills, migrateNewSkills, saveBaseline, singleSourceNames } = await import("./monitor/onboard.js");
@@ -411,6 +464,8 @@ function helpText(): string {
   hm onboard           手动检测新技能并迁移到单源共享
   hm live              实时监控(工具调用/活跃会话, 需pi extension)
   hm resources         列出资源 (skills/工具/扩展)
+  hm skill [<name>]    技能中文说明(全部或单个)
+  hm suggest <意图>    按场景推荐技能
   hm sessions          列出会话
   hm trace <id>        显示会话调用链树
   hm story <id>        执行轨迹 + 思考过程(完整追溯)
