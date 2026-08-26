@@ -29,3 +29,11 @@
 ## 单源技能如何被加载
 harness-manager 已作为 pi 包安装（`pi list` 可见），其 `skills/` 目录是标准加载位置，
 pi 自动加载单源内全部技能。Claude Code 侧可通过 settings 引用同一目录（单源多引用）。
+
+## 包技能统一迁移（2026-08-26 第2轮）
+- superpowers 包 27 个技能 → 复制进单源目录
+- 删除重复/无意义: test-driven-development(重复tdd)、review(重复code-review)、using-superpowers(依赖已删包)
+- 空目录清理: learned
+- **删除包**: npm:@krone9/pi-superpowers、git:github.com/wuyaos/pi-packages、npm:@narumitw/pi-plan-mode
+  （settings.json 备份: ~/.pi/agent/settings.json.bak-20260826183305）
+- 最终: 单源 69 个技能统一管理, 项目级(hb-ultra 10个)保留在各自项目下
