@@ -37,6 +37,8 @@
   .bar { background:#242933; border-radius:4px; height:8px; overflow:hidden; margin-top:4px; }
   .bar > div { background:var(--accent); height:100%; }
   .error { color:var(--red); }
+  .op { background:#242933; border:1px solid var(--line); color:var(--fg); padding:3px 8px; border-radius:6px; font-size:11px; cursor:pointer; margin-right:4px; }
+  .op:hover { border-color:var(--accent); color:var(--accent); }
   a { color:var(--accent); text-decoration:none; }
   .row { display:flex; gap:12px; flex-wrap:wrap; }
   .row > .panel { flex:1; min-width:280px; }
@@ -92,6 +94,11 @@ async function loadResources() {
     <td>${esc(x.source)}:${esc(x.scope)}</td>
     <td>${esc(x.status)}</td>
     <td class="muted">${esc((x.description||"").slice(0,60))}</td>
+    <td>
+      <button class="op" data-id="${esc(x.id)}" data-name="${esc(x.name)}" onclick="applyRes('disable',this)">停用</button>
+      <button class="op" data-id="${esc(x.id)}" data-name="${esc(x.name)}" onclick="applyRes('enable',this)">启用</button>
+      <button class="op" data-id="${esc(x.id)}" data-name="${esc(x.name)}" onclick="applyRes('move',this)">迁单源</button>
+    </td>
   </tr>`).join("");
   $("#content").innerHTML = `<div class="panel"><h2>资源清单 (${r.length})</h2>
     <table><thead><tr><th>名称</th><th>类型</th><th>来源:归属</th><th>状态</th><th>描述</th></tr></thead><tbody>${rows}</tbody></table></div>`;
@@ -183,6 +190,20 @@ async function loadStats() {
 }
 
 const pages = { dashboard: loadDashboard, resources: loadResources, sessions: loadSessions, dedupe: loadDedupe, token: loadToken, stats: loadStats };
+
+async function applyRes(type, btn) {
+  const id = btn.dataset.id, name = btn.dataset.name;
+  const reason = type === "disable" ? (prompt(`停用 ${name}，理由? (duplicate-of:xxx / superseded-by:xxx)`) || "duplicate/superseded") : undefined;
+  // 1) dry-run
+  const plan = await fetch("/api/apply", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ req: { type, resourceId: id, reason, target: name } }) }).then((r) => r.json());
+  const actions = plan.planned?.[0]?.actions || [];
+  const msg = `将执行:\n${actions.map((a) => "  • " + a).join("\n")}\n\n确认执行?`;
+  if (!confirm(msg)) return;
+  // 2) 确认执行
+  await fetch("/api/apply", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ req: { type, resourceId: id, reason, target: name }, confirm: true }) });
+  alert("已执行");
+  loadResources();
+}
 
 $("#nav").addEventListener("click", (e) => {
   const b = e.target.closest("button"); if (!b) return;

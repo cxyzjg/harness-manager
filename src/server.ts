@@ -14,15 +14,15 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
 import { loadConfig, ensureDataDir } from "./config.js";
 import { scan } from "./orchestrator.js";
 import { loadCache, saveCache } from "./storage.js";
 import { detectDupes } from "./analysis/dedupe.js";
 import { aggregateTokens, contextStats, toolStats } from "./analysis/stats.js";
 import { buildCallTree } from "./analysis/calltree.js";
+import { planMutation, executeMutation, repoRoot, type ApplyRequest } from "./apply.js";
 
-const __dirname = join(fileURLToPath(import.meta.url), "..");
+const htmlPath = join(repoRoot, "src", "web", "index.html");
 
 let cached = loadCache();
 
@@ -84,13 +84,21 @@ const routes: Record<string, (url: URL) => Promise<unknown> | unknown> = {
 export function startServer(): void {
   const cfg = loadConfig();
   ensureDataDir();
-  const htmlPath = join(__dirname, "web", "index.html");
 
   const server = createServer(async (req: IncomingMessage, res: ServerResponse) => {
     const url = new URL(req.url ?? "/", "http://localhost");
     const path = url.pathname;
 
     try {
+      // POST /api/apply — 管理操作（dry-run 或确认执行）
+      if (path === "/api/apply" && req.method === "POST") {
+        let body = "";
+        for await (const chunk of req) body += chunk;
+        const payload = JSON.parse(body) as { req: ApplyRequest; confirm?: boolean };
+        const result = executeMutation(payload.req, repoRoot, payload.confirm === true);
+        return json(res, result);
+      }
+
       if (path.startsWith("/api/")) {
         await ensureData();
         // 会话详情

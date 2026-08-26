@@ -203,6 +203,27 @@ async function main(): Promise<void> {
       }
       break;
     }
+    case "apply": {
+      // hm apply enable <resourceId> [reason]   (先 dry-run，-y 确认)
+      // hm apply disable <resourceId> [reason]
+      // hm apply move <resourceId> [target]
+      const { planMutation, executeMutation, repoRoot } = await import("./apply.js");
+      const op = args[0];
+      const resourceId = args[1];
+      const reason = args[2];
+      if (!op || !resourceId) return console.log("用法: hm apply <enable|disable|move> <resourceId> [reason/target]");
+      const req = { type: op, resourceId, reason, target: reason };
+      // 先 dry-run
+      const plan = planMutation(req as never, repoRoot);
+      console.log("将执行:");
+      plan.actions.forEach((a) => console.log(`  • ${a}`));
+      if (!args.includes("-y")) {
+        return console.log("\n这是 dry-run。确认执行请加 -y: hm apply " + args.join(" ") + " -y");
+      }
+      const result = executeMutation(req as never, repoRoot, true);
+      console.log("\n✓ 已执行");
+      break;
+    }
     case "serve":
       {
         const { startServer } = await import("./server.js");

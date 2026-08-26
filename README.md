@@ -52,6 +52,8 @@ npm run hm -- trend      # token 趋势(按项目/模型)
 npm run hm -- timeline <id>   # 会话时间线
 npm run hm -- stats      # 上下文规模 + 工具统计
 npm run hm -- serve     # 启动 Web 控制面 → http://localhost:8787
+npm run hm -- apply disable pi:global:code-review duplicate-of:review   # 管理操作(dry-run)
+npm run hm -- apply disable pi:global:code-review duplicate-of:review -y  # 确认执行
 npx vitest run            # 跑测试
 ```
 
