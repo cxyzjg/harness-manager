@@ -70,6 +70,34 @@ async function main(): Promise<void> {
       saveBaseline(singleSourceNames(repoPath));
       break;
     }
+    case "live": {
+      // hm live — 实时监控（pi extension 记录的工具调用）
+      const { liveSnapshot } = await import("./monitor/realtime.js");
+      const snap = liveSnapshot();
+      if (useJson) return out(snap);
+      if (!snap.active) {
+        console.log("实时监控未启用：需要 pi extension 记录事件。");
+        console.log("启用方式: 将 extensions/realtime.ts 注册为 pi 扩展，或用 pi install 安装本包。");
+        break;
+      }
+      console.log(`实时监控 ${snap.logSize} bytes @ ${snap.logPath}`);
+      console.log(`\n最近 1h: ${snap.window1h.toolCalls} 次工具调用`);
+      const top1h = Object.entries(snap.window1h.byTool).sort((a, b) => b[1] - a[1]).slice(0, 8);
+      for (const [k, v] of top1h) console.log(`  ${v}\t${k}`);
+      console.log(`\n最近 24h: ${snap.window24h.toolCalls} 次工具调用`);
+      if (snap.activeSessions.length) {
+        console.log(`\n活跃会话 (${snap.activeSessions.length}):`);
+        snap.activeSessions.slice(0, 5).forEach((s) => console.log(`  • ${s.slice(0, 30)}`));
+      }
+      console.log("\n最近事件:");
+      for (const e of snap.recent.slice(0, 10)) {
+        const t = e.ts.slice(11, 19);
+        if (e.type === "tool_call") console.log(`  ${t} 🛠 ${e.toolName} ${summarize(e.input)}`);
+        else if (e.type === "session_start") console.log(`  ${t} ▶ 会话开始 ${e.cwd ?? ""}`);
+        else console.log(`  ${t} ■ 会话结束`);
+      }
+      break;
+    }
     case "onboard": {
       // hm onboard — 手动触发：检测新技能 + 询问迁移
       const { detectNewSkills, migrateNewSkills, saveBaseline, singleSourceNames } = await import("./monitor/onboard.js");
@@ -366,6 +394,7 @@ function helpText(): string {
 用法:
   hm scan              扫描三端数据并缓存(自动检测新技能)
   hm onboard           手动检测新技能并迁移到单源共享
+  hm live              实时监控(工具调用/活跃会话, 需pi extension)
   hm resources         列出资源 (skills/工具/扩展)
   hm sessions          列出会话
   hm trace <id>        显示会话调用链树

@@ -81,6 +81,7 @@ const routes: Record<string, (url: URL) => Promise<unknown> | unknown> = {
       ? { cs: contextStats(cached.sessions), ts: toolStats(cached.sessions) }
       : {},
   "/api/memories": () => cached?.memories ?? [],
+  "/api/live": () => import("./monitor/realtime.js").then(({ liveSnapshot }) => liveSnapshot()),
   "/api/outcome": () => (cached ? evaluateAll(cached.sessions) : []),
   "/api/health": () =>
     cached

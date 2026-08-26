@@ -59,6 +59,7 @@
   <button data-page="stats">统计</button>
   <button data-page="outcome">会话成效</button>
   <button data-page="health">技能健康</button>
+  <button data-page="live">实时</button>
 </nav>
 <main id="main">
   <div class="cards" id="cards"></div>
@@ -354,7 +355,36 @@ async function loadStats() {
     </div>`;
 }
 
-const pages = { dashboard: loadDashboard, resources: loadResources, sessions: loadSessions, dedupe: loadDedupe, token: loadToken, stats: loadStats, outcome: loadOutcome, health: loadHealth };
+const pages = { dashboard: loadDashboard, resources: loadResources, sessions: loadSessions, dedupe: loadDedupe, token: loadToken, stats: loadStats, outcome: loadOutcome, health: loadHealth, live: loadLive };
+
+async function loadLive() {
+  const s = await api("/api/live");
+  if (!s.active) {
+    $("#content").innerHTML = `<div class="panel"><h2>⚡ 实时监控</h2>
+      <p class="muted">实时监控未启用。需要将 <code>extensions/realtime.ts</code> 注册为 pi 扩展，
+      它会把正在发生的工具调用写入 <code>~/.harness-manager/realtime/events.log</code>。</p></div>`;
+    return;
+  }
+  const top1h = Object.entries(s.window1h?.byTool || {}).sort((a, b) => b[1] - a[1]).slice(0, 10);
+  const max = Math.max(1, ...top1h.map(([, v]) => v));
+  const bars = top1h.map(([k, v]) => `<div style="margin:6px 0"><span>${esc(k)}</span> <span class="muted">×${v}</span>
+    <div class="bar"><div style="width:${(v / max * 100).toFixed(1)}%"></div></div></div>`).join("");
+  const events = (s.recent || []).map((e) => {
+    const t = (e.ts || "").slice(11, 19);
+    if (e.type === "tool_call") return `<div style="margin:3px 0"><span class="muted">${t}</span> 🛠 <b>${esc(e.toolName)}</b> <span class="muted">${esc((e.input && JSON.stringify(e.input) || "").slice(0, 60))}</span></div>`;
+    if (e.type === "session_start") return `<div style="margin:3px 0"><span class="muted">${t}</span> ▶ 会话开始 <span class="muted">${esc(e.cwd || "")}</span></div>`;
+    return `<div style="margin:3px 0"><span class="muted">${t}</span> ■ 会话结束</div>`;
+  }).join("");
+  $("#content").innerHTML = `
+    <div class="row">
+      <div class="panel"><h2>最近 1h 工具调用 (${s.window1h?.toolCalls ?? 0})</h2>${bars || '<p class="muted">无</p>'}</div>
+      <div class="panel"><h2>活跃会话 (${(s.activeSessions || []).length})</h2>${(s.activeSessions || []).slice(0, 6).map((x) => `<div>• ${esc(x.slice(0, 40))}</div>`).join("") || '<p class="muted">无</p>'}</div>
+    </div>
+    <div class="panel"><h2>实时事件流</h2><div style="max-height:400px;overflow:auto">${events || '<p class="muted">暂无事件</p>'}</div></div>
+    <p class="muted" style="font-size:11px">日志: ${esc(s.logPath)} · ${s.logSize} bytes · 自动刷新</p>`;
+  // 每 3 秒自动刷新
+  setTimeout(() => { if (document.querySelector("nav button.active")?.dataset.page === "live") loadLive(); }, 3000);
+}
 
 async function loadOutcome() {
   const o = await api("/api/outcome");
