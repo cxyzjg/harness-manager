@@ -1,0 +1,14 @@
+{
+  "//": "机器级配置模板 —— 随包分发，各机复制后按需修改，勿直接引用。",
+  "defaultProvider": "zp",
+  "defaultModel": "deepseek-v4-flash-ga-260731",
+  "defaultThinkingLevel": "high",
+  "theme": "dark",
+  "packages": [
+    "npm:@krone9/pi-superpowers",
+    "git:github.com/cxyzjg/harness-manager"
+  ],
+  "skills": [
+    "~/skills"
+  ]
+}

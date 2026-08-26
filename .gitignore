@@ -1,0 +1,13 @@
+# 本机生成的 Inventory 快照不进版本控制（每机不同）
+docs/STATUS-*.md
+docs/FLEET-*.md
+
+# 包管理
+node_modules/
+
+# OS / 编辑器
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
