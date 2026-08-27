@@ -83,6 +83,15 @@ const routes: Record<string, (url: URL) => Promise<unknown> | unknown> = {
     return import("./db/reviewQuery.js").then(({ buildReviewFromDb }) => buildReviewFromDb(id));
   },
   "/api/v2/fleet": () => import("./db/reviewQuery.js").then(({ fleetMetrics }) => fleetMetrics()),
+  "/api/v2/skill-usage-triage": () =>
+    import("./core/skills/usageTriage.js").then(({ triageSkillUsage }) => triageSkillUsage(repoRoot)),
+  "/api/v2/summary": (url) => {
+    // 会话级摘要: /api/v2/summary?id=<sessionId> ; 时段聚合: 无id
+    const id = url.searchParams.get("id") ?? "";
+    return import("./db/summary.js").then(({ summarizeSession, periodSummary }) =>
+      id ? summarizeSession(id) : periodSummary()
+    );
+  },
   "/api/v2/anomalies": () =>
     import("./core/anomaly.js").then(({ detectAnomalies }) => ({ anomalies: detectAnomalies(), at: new Date().toISOString() })),
   "/api/v2/skill-effects": async () => {
@@ -370,7 +379,10 @@ export function startServer(): void {
           // 同步入统一库(SQLite)
           const { runIngest } = await import("./db/ingest.js");
           const report = runIngest();
-          return json(res, { ok: true, sessions: cached.sessions.length, resources: cached.resources.length, v2: report });
+          // 实时错误回填(pi tool_result -> is_error)
+          const { backfillErrors } = await import("./db/errorBackfill.js");
+          const bf = backfillErrors();
+          return json(res, { ok: true, sessions: cached.sessions.length, resources: cached.resources.length, v2: report, backfill: bf });
         }
         // 会话执行轨迹 + 思考
         const sm = path.match(/^\/api\/sessions\/(.+)\/story$/);

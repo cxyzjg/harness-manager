@@ -78,6 +78,25 @@ export default function (pi: ExtensionAPI): void {
     return undefined;
   });
 
+  // 工具结果(①补pi实时错误率): 记录 isError/耗时 -> events.log
+  pi.on("tool_result", async (event) => {
+    const e = event as {
+      toolName?: string;
+      toolCallId?: string;
+      isError?: boolean;
+      content?: unknown;
+      usage?: unknown;
+    };
+    logEvent("tool_result", {
+      toolName: e.toolName ?? "unknown",
+      toolCallId: e.toolCallId ?? "",
+      isError: e.isError === true,
+      contentExcerpt: typeof e.content === "string" ? e.content.slice(0, 200) : undefined,
+    });
+    // 不改结果, 仅观测
+    return undefined;
+  });
+
   // 技能触发追踪 + 真启停过滤: 用户每回合记录已加载技能, 并从系统提示移除禁用技能
   pi.on("before_agent_start", async (event) => {
     const e = event as {

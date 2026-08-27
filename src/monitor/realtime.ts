@@ -13,7 +13,7 @@ import { homedir } from "node:os";
 
 export interface LiveEvent {
   ts: string;
-  type: "tool_call" | "session_start" | "session_shutdown" | "skill_trigger" | "compaction" | "model_change" | "assistant_message";
+  type: "tool_call" | "session_start" | "session_shutdown" | "skill_trigger" | "compaction" | "model_change" | "assistant_message" | "tool_result";
   toolName?: string;
   input?: unknown;
   sessionId?: string;
@@ -28,6 +28,9 @@ export interface LiveEvent {
   thinking?: string;
   text?: string;
   tools?: { name?: string; input?: unknown }[];
+  isError?: boolean;
+  toolCallId?: string;
+  contentExcerpt?: string;
 }
 
 export interface LiveSnapshot {

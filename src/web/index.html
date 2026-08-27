@@ -279,11 +279,21 @@ function renderAnomalies(list) {
 /* ========== 技能中心 ========== */
 async function loadSkills() {
   _view = "skills";
-  const d = await api("/api/skills");
+  var pair = await Promise.all([api("/api/skills"), api("/api/v2/skill-usage-triage").catch(function(){return [];})]);
+  const d = pair[0];
+  var usageMap = {};
+  (pair[1]||[]).forEach(function(u){ usageMap[u.skill] = u; });
   const catFilter = document.getElementById("cat-filter")?.value || "all";
+  const usageFilter = document.getElementById("usage-filter")?.value || "all";
   const q = (document.getElementById("skill-q")?.value || "").toLowerCase();
-  let list = d.skills || [];
+  let list = (d.skills || []).map(function(x){
+    var u = usageMap[x.name];
+    x.usageState = u ? u.state : "active-unused";
+    x.triggerReal = u ? u.triggerCount : x.triggerCount;
+    return x;
+  });
   if (catFilter !== "all") list = list.filter((x) => x.category === catFilter);
+  if (usageFilter !== "all") list = list.filter((x) => x.usageState === usageFilter);
   if (q) list = list.filter((x) => (x.name + " " + (x.cnName||"") + " " + (x.what||"") + " " + (x.outcome||"")).toLowerCase().includes(q));
   const cats = [...new Set((d.skills||[]).map((x) => x.category))].sort();
   const opts = '<option value="all">全部分类</option>' + cats.map((c)=>'<option value="' + esc(c) + '">' + esc(c) + "</option>").join("");
@@ -295,7 +305,8 @@ async function loadSkills() {
     "<td>" + esc(x.source) + ":" + esc(x.scope) + "</td>" +
     "<td>" + statusTag(x.status, x.migratedTo) + "</td>" +
     "<td>" + (x.enabled ? '<span class="tag green">启用</span>' : '<span class="tag red">禁用</span>') + "</td>" +
-    "<td>" + (x.triggerCount ? "<b>"+x.triggerCount+"</b>" : '<span class="muted">0</span>') + "</td>" +
+    "<td>" + (x.triggerReal ? "<b>"+x.triggerReal+"</b>" : '<span class="muted">0</span>') + "</td>" +
+    "<td>" + (x.usageState==="active-used" ? '<span class="tag green">在用</span>' : x.usageState==="low-usage" ? '<span class="tag yellow">低频</span>' : x.usageState==="disabled" ? '<span class="tag red">已禁用</span>' : '<span class="tag red">未用</span>') + "</td>" +
     "<td>" + (x.healthScore!=null ? (x.healthLevel==="healthy"?"🟢":x.healthLevel==="attention"?"🟡":"🔴")+" "+x.healthScore : "—") + "</td>" +
     '<td class="muted">' + esc((x.what||"").slice(0,40)) + "</td>" +
     "<td>" +
@@ -307,6 +318,8 @@ async function loadSkills() {
     '<div style="margin:6px 0;display:flex;gap:8px;align-items:center;flex-wrap:wrap">' +
       '<input id="skill-q" placeholder="搜索技能/说明…" oninput="loadSkills()" style="flex:1;min-width:160px;background:#242933;color:var(--fg);border:1px solid var(--line);border-radius:8px;padding:6px 10px">' +
       '<select id="cat-filter" onchange="loadSkills()" style="background:#242933;color:var(--fg);border:1px solid var(--line);border-radius:6px;padding:4px 8px">' + opts + "</select>" +
+      '<select id="usage-filter" onchange="loadSkills()" style="background:#242933;color:var(--fg);border:1px solid var(--line);border-radius:6px;padding:4px 8px">' +
+        '<option value="all">全部使用度</option><option value="active-unused">未用</option><option value="low-usage">低频</option><option value="active-used">在用</option><option value="disabled">已禁用</option></select>' +
       '<span class="muted" style="font-size:12px">共 ' + list.length + ' 个</span>' +
     "</div>" +
     '<table><thead><tr><th>名称</th><th>中文名</th><th>分类</th><th>来源</th><th>状态</th><th>启停</th><th>触发</th><th>健康</th><th>说明</th><th>操作</th></tr></thead><tbody>' + rows + "</tbody></table>" +
@@ -401,7 +414,11 @@ function loadMoreTurns() {
 async function showReview(id) {
   _view = "review";
   toast("加载审查回放…");
-  var r = await api("/api/v2/review?id=" + encodeURIComponent(id));
+  var pair = await Promise.all([
+    api("/api/v2/review?id=" + encodeURIComponent(id)),
+    api("/api/v2/summary?id=" + encodeURIComponent(id)).catch(function(){return null;})
+  ]);
+  var r = pair[0], sum = pair[1];
   if (!r) return toast("未找到该会话(先点右上角刷新数据同步)");
   var m = (window._v2Fleet) || null;
   var t0 = r.totals;
@@ -423,6 +440,12 @@ async function showReview(id) {
       '<div class="card"><div class="num">'+fmt(r.totals.tools)+'</div><div class="label">工具调用</div></div>' +
       '<div class="card"><div class="num">'+fmt(r.totals.thinkingBlocks)+'</div><div class="label">思考块</div></div>' +
       '<div class="card"><div class="num">'+fmt((r.totals.tokensIn||0)+(r.totals.tokensOut||0))+'</div><div class="label">token (in '+fmt(r.totals.tokensIn||0)+')</div></div>' +
+    '</div>' +
+    '<div class="panel" style="border-left:3px solid var(--accent)">' +
+      '<h2>🧾 这段时间 agent 干了什么</h2>' +
+      (sum ? ('<p style="margin:6px 0"><b>' + esc(sum.headline || "") + '</b></p>' +
+              '<p class="muted" style="font-size:12px">动作: ' + (sum.actions?'写'+sum.actions.write+' · 读'+sum.actions.read+' · 执行'+sum.actions.exec+' · 检索'+sum.actions.search+' · 规划'+sum.actions.plan:'-') + '</p>' +
+              (sum.touchedFiles&&sum.touchedFiles.length?'<p class="muted" style="font-size:12px">改动文件 ('+sum.touchedFiles.length+'): '+esc(sum.touchedFiles.slice(0,6).join(" · "))+(sum.touchedFiles.length>6?" …":"")+'</p>':"")) : '<p class="muted">暂无摘要</p>') +
     '</div>' +
     '<div class="panel"><h2>审查回放 — '+esc(r.session.harness)+' · '+esc((r.session.started_at||"").slice(0,16))+' · '+esc(r.session.cwd||"")+(r.session.degraded?' <span class="tag red">部分数据降级</span>':"")+'</h2>' +
     '<p class="muted" style="font-size:12px">每 turn 展示: 用户输入 → 💭思考(为什么) → 🛠工具(做什么,含耗时/错误) → agent 当时所见上下文构成</p></div>' +
