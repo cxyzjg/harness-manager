@@ -370,6 +370,34 @@ async function loadSessionsPage() {
       '<table><thead><tr><th>id</th><th>harness</th><th>日期</th><th>turn/工具/思考</th><th>token</th><th>模型</th><th>项目</th></tr></thead><tbody>'+(rows || '<tr><td colspan="7" class="muted">暂无。点击右上"🔄刷新数据"</td></tr>')+'</tbody></table></div>';
 }
 
+var _reviewData = null; // 当前审查回放数据(分批渲染)
+var _reviewShown = 0;
+function renderTurnBatch(list, from, to) {
+  return list.slice(from, to).map(function(t){
+    var think=(t.thinking||[]).map(function(th){return '<div style="color:#d8c48a;font-size:12px;margin:2px 0">💭 '+esc((th.text||"").replace(/\s+/g," ").slice(0,140))+"…</div>";}).join("");
+    var tools=(t.tools||[]).slice(0,6).map(function(tc){return '<div style="color:var(--accent);font-size:12px">🛠 '+esc(tc.name)+' <span class="muted">'+esc(tc.input||"")+"</span></div>";}).join("")+((t.tools.length>6)?'<div class="muted" style="font-size:11px">…共'+t.tools.length+"个</div>":"");
+    var out=(t.textOutput&&t.textOutput[0])?'<div class="muted" style="font-size:12px;margin:3px 0">↩ '+esc(String(t.textOutput[0]).replace(/\s+/g," ").slice(0,110))+"</div>":"";
+    return '<div class="panel" style="margin:8px 0;padding:10px 14px;border-left:3px solid var(--line)">' +
+      '<div><b>[turn '+t.index+']</b> <span class="muted">'+esc((t.ts||"").slice(11,19))+'</span> '+esc((t.userInput||"").slice(0,80))+
+      ' <span class="tag" style="margin-left:8px">所见: '+(t.contextAtTurn?t.contextAtTurn.messages:'?')+'msg/'+(t.contextAtTurn?t.contextAtTurn.thinking:'?')+'💭/'+(t.contextAtTurn?t.contextAtTurn.tools:'?')+'🛠</span></div>' +
+      think+tools+out+'</div>';
+  }).join("");
+};
+function loadMoreTurns() {
+  var container = document.getElementById("turns-body");
+  if (!container || !_reviewData) return;
+  var list = (_reviewData.turns && _reviewData.turns.list) || [];
+  var total = _reviewData.turns ? _reviewData.turns.total : 0;
+  var next = Math.min(_reviewShown + 25, total);
+  var btn = document.getElementById("load-more-btn");
+  if (btn) btn.remove();
+  container.insertAdjacentHTML("beforeend", renderTurnBatch(list, _reviewShown, next));
+  _reviewShown = next;
+  if (_reviewShown < total) {
+    container.insertAdjacentHTML("beforeend", '<div id="load-more-btn" style="text-align:center;margin:10px"><button class="op" onclick="loadMoreTurns()">' + "显示更多 ("+_reviewShown+"/"+total+")</button></div>");
+  }
+};
+
 async function showReview(id) {
   _view = "review";
   toast("加载审查回放…");
