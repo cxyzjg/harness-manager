@@ -443,7 +443,7 @@ async function loadSkills() {
     '<div style="margin:6px 0;display:flex;gap:8px;align-items:center;flex-wrap:wrap">' +
       '<input id="skill-q" placeholder="搜索技能/说明…" oninput="loadSkills()" style="flex:1;min-width:160px;background:#242933;color:var(--fg);border:1px solid var(--line);border-radius:8px;padding:6px 10px">' +
       '<select id="cat-filter" onchange="loadSkills()" style="background:#242933;color:var(--fg);border:1px solid var(--line);border-radius:6px;padding:4px 8px">' + opts + "</select>" +
-      '<span class="muted" style="font-size:12px">触发合计 ' + d.triggers + " · 🟢" + (d.summary?.byLevel?.healthy||0) + " 🟡" + (d.summary?.byLevel?.attention||0) + " 🔴" + (d.summary?.byLevel?.risk||0) + "</span>" +
+      '<span class="muted" style="font-size:12px">共 ' + list.length + ' 个</span>' +
     "</div>" +
     '<table><thead><tr><th>名称</th><th>中文名</th><th>分类</th><th>来源</th><th>状态</th><th>启停</th><th>触发</th><th>健康</th><th>说明</th><th>操作</th></tr></thead><tbody>' + rows + "</tbody></table>" +
     '<p class="muted" style="font-size:11px;margin-top:8px">启停=真控制: 禁用后 pi 在下一回合把该技能从系统提示移除(agent 不再看见)。</p>' +
@@ -510,12 +510,6 @@ async function loadSessionsPage() {
     "</tr>";
   }).join("");
   $("#content").innerHTML =
-    '<div class="cards">' +
-      '<div class="card"><div class="num">'+(hub.summary?.totalSessions??0)+'</div><div class="label">会话</div></div>' +
-      '<div class="card"><div class="num">'+fmt(hub.summary?.totalTools??0)+'</div><div class="label">工具调用</div></div>' +
-      '<div class="card"><div class="num">🟢'+(hub.summary?.highOutcome??0)+'</div><div class="label">中:'+(hub.summary?.mediumOutcome??0)+" 低:"+(hub.summary?.lowOutcome??0)+'</div></div>' +
-      '<div class="card"><div class="num">'+(live.window1h?.toolCalls??0)+'</div><div class="label">⚡最近1h调用</div></div>' +
-    "</div>" +
     '<div class="panel"><h2>⚡ 正在发生 (实时观测思考与推理链)</h2>' +
       '<div id="live-stream" style="max-height:180px;overflow:auto;font-size:12px">'+(liveEvts || '<span class="muted">暂无实时事件。若未生效: 重启 pi 会话让 extension 加载。</span>')+"</div>" +
     "</div>" +
