@@ -212,7 +212,13 @@ async function pollLive() {
 /* ========== 仪表盘(纯量化指标) ========== */
 async function loadDash() {
   _view = "dash";
+  const anomaliesP = api("/api/v2/anomalies").catch(() => null);
   const d = await api("/api/dash");
+  // 异常优先渲染(不等量化数据)
+  try {
+    var an = await anomaliesP;
+    renderAnomalies(an && an.anomalies || []);
+  } catch { /* ignore */ }
   const c1 = [
     { n: d.resources.skills, l: "技能总数" },
     { n: d.sessions.total, l: "会话数" },
@@ -226,7 +232,10 @@ async function loadDash() {
   const topTrig = (d.triggers.top || []).map((t) => "<tr><td>" + esc(t.name) + '</td><td><b>' + t.count + "</b></td></tr>").join("");
   const byModel = (d.tokens.byModel || []).map((m) => "<tr><td>" + esc(m.model) + "</td><td>" + fmt(m.input) + "</td><td>" + fmt(m.output) + "</td></tr>").join("");
   const srcTags = Object.entries(d.resources.bySource || {}).map(([k,v])=>'<span class="tag" style="margin-right:6px">' + esc(k)+":"+v + "</span>").join("");
-  $("#content").innerHTML =
+  var anomalyHtml = "";
+    try { var ah = document.getElementById("anomaly-bar"); } catch(e) {}
+    $("#content").innerHTML =
+    '<div id="anomaly-bar"></div>' +
     '<div class="cards">' + c1 + "</div>" +
     '<div class="row">' +
       '<div class="panel"><h2>可靠性量化</h2>' +
@@ -243,6 +252,28 @@ async function loadDash() {
       '<div class="panel"><h2>Token 按模型</h2><table><thead><tr><th>模型</th><th>in</th><th>out</th></tr></thead><tbody>' + byModel + "</tbody></table></div>" +
       '<div class="panel"><h2>技能触发 Top</h2><table><thead><tr><th>技能</th><th>次数</th></tr></thead><tbody>' + (topTrig || '<tr><td colspan="2" class="muted">暂无(重启pi会话后记录)</td></tr>') + "</tbody></table></div>" +
     "</div>";
+}
+
+function renderAnomalies(list) {
+  window._lastAnomalies = list;
+  var host = document.getElementById("anomaly-bar");
+  if (!host) return;
+  if (!host) return;
+  if (!list.length) {
+    host.innerHTML = '<div class="panel" style="border-color:var(--green);padding:10px 14px"><span class="tag green">✓ 无异常</span> <span class="muted" style="font-size:12px">错误率/重试/空转/技能冲突/token离群 全部正常</span></div>';
+    return;
+  }
+  var colors = { critical: "var(--red)", warning: "var(--yellow)", info: "var(--muted)" };
+  var html = list.map(function(a){
+    var icon = a.level === "critical" ? "🔴" : a.level === "warning" ? "🟡" : "⚪";
+    return '<div class="panel" style="padding:8px 12px;margin-bottom:6px;border-left:3px solid ' + (colors[a.level]||"var(--muted)") + '">' +
+      icon + ' <b>' + esc(a.title) + '</b>' +
+      ' <span class="muted" style="font-size:12px">' + esc(a.detail) + '</span>' +
+      (a.sessionId ? ' <button class="op" onclick="showReview(\''+esc(a.sessionId)+'\')">查看现场</button>' : "") +
+      (a.actionHint ? ' <div class="muted" style="font-size:11px;margin-top:2px">→ ' + esc(a.actionHint) + "</div>" : "") +
+    "</div>";
+  }).join("");
+  host.innerHTML = '<div style="margin-bottom:16px"><h2 style="font-size:15px;margin-bottom:6px">🚨 异常发现 (' + list.length + ')</h2>' + html + "</div>";
 }
 
 /* ========== 技能中心 ========== */

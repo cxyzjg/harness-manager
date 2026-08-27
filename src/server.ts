@@ -83,6 +83,8 @@ const routes: Record<string, (url: URL) => Promise<unknown> | unknown> = {
     return import("./db/reviewQuery.js").then(({ buildReviewFromDb }) => buildReviewFromDb(id));
   },
   "/api/v2/fleet": () => import("./db/reviewQuery.js").then(({ fleetMetrics }) => fleetMetrics()),
+  "/api/v2/anomalies": () =>
+    import("./core/anomaly.js").then(({ detectAnomalies }) => ({ anomalies: detectAnomalies(), at: new Date().toISOString() })),
   "/api/v2/skill-effects": async () => {
     const [{ linkSkillEffects }, { assessSkillHealth }] = await Promise.all([
       import("./core/skills/effectLink.js"),
