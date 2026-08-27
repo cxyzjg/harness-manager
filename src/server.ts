@@ -74,7 +74,10 @@ function sessionDetail(id: string) {
 const routes: Record<string, (url: URL) => Promise<unknown> | unknown> = {
   "/api/dashboard": () => dashboard(),
   "/api/v2/sessions": () =>
-    import("./db/store.js").then(({ listSessions }) => listSessions()),
+    import("./db/store.js").then(({ listSessions, perSessionStats }) => {
+      const stats = perSessionStats();
+      return listSessions().map((s) => ({ ...s, stats: stats[s.id] ?? { turns: 0, tools: 0, thinking: 0, tokensIn: 0, tokensOut: 0 } }));
+    }),
   "/api/v2/review": (url) => {
     const id = url.searchParams.get("id") ?? "";
     return import("./db/reviewQuery.js").then(({ buildReviewFromDb }) => buildReviewFromDb(id));

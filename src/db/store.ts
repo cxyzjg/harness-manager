@@ -268,6 +268,30 @@ export function getCostsByModel(): { model: string; input: number; output: numbe
 }
 
 /** 全库统计(仪表盘用) */
+/** 每会话统计(turn数/工具数/思考数/token, 列表页一次查询) */
+export function perSessionStats(): Record<string, { turns: number; tools: number; thinking: number; tokensIn: number; tokensOut: number }> {
+  const d = getDb();
+  const out: Record<string, { turns: number; tools: number; thinking: number; tokensIn: number; tokensOut: number }> = {};
+  for (const r of d.prepare("SELECT session_id, COUNT(*) AS n FROM turns GROUP BY session_id").all() as { session_id: string; n: number }[]) {
+    out[r.session_id] = out[r.session_id] ?? { turns: 0, tools: 0, thinking: 0, tokensIn: 0, tokensOut: 0 };
+    out[r.session_id].turns = r.n;
+  }
+  for (const r of d.prepare("SELECT session_id, COUNT(*) AS n FROM tool_calls GROUP BY session_id").all() as { session_id: string; n: number }[]) {
+    const o = (out[r.session_id] ??= { turns: 0, tools: 0, thinking: 0, tokensIn: 0, tokensOut: 0 });
+    o.tools = r.n;
+  }
+  for (const r of d.prepare("SELECT session_id, COUNT(*) AS n FROM thinkings GROUP BY session_id").all() as { session_id: string; n: number }[]) {
+    const o = (out[r.session_id] ??= { turns: 0, tools: 0, thinking: 0, tokensIn: 0, tokensOut: 0 });
+    o.thinking = r.n;
+  }
+  for (const r of d.prepare("SELECT session_id, SUM(input_tokens) AS i, SUM(output_tokens) AS o FROM costs GROUP BY session_id").all() as { session_id: string; i: number | null; o: number | null }[]) {
+    const o = (out[r.session_id] ??= { turns: 0, tools: 0, thinking: 0, tokensIn: 0, tokensOut: 0 });
+    o.tokensIn = r.i ?? 0;
+    o.tokensOut = r.o ?? 0;
+  }
+  return out;
+}
+
 export function globalStats(): { sessions: number; turns: number; tools: number; errors: number; byHarness: Record<string, number> } {
   const d = getDb();
   const one = (sql: string): number => (d.prepare(sql).get() as { n: number }).n;

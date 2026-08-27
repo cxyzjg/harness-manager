@@ -4,6 +4,8 @@
  */
 import { piAvailable, piListSessions, piParse } from "../adapters/unified-pi.js";
 import { ccAvailable, ccListSessions, ccParse } from "../adapters/unified-cc.js";
+import { codexAvailable, codexListSessions, codexParse } from "../adapters/unified-codex.js";
+import { dshAvailable, dshListSessions, dshParse } from "../adapters/unified-dsh.js";
 import { ingest, globalStats } from "../db/store.js";
 import type { IngestResult } from "../core/schema.js";
 
@@ -46,6 +48,20 @@ export function runIngest(opts: { only?: ("pi" | "claude")[] } = {}): IngestRepo
 
   runOne("pi", piAvailable, piListSessions, piParse);
   runOne("claude", ccAvailable, ccListSessions, ccParse);
+  // codex/dsh: available()=false 时自动跳过(等有真实数据即自动接入)
+  try {
+    if (codexAvailable()) {
+      harnesses.push("codex");
+      for (const f of codexListSessions()) {
+        const res = codexParse(f.path);
+        const r = ingest(res);
+        r.ok ? ingested++ : failed++;
+        totalErrors += r.errorCount;
+      }
+    }
+  } catch { /* ignore */ }
+  void dshAvailable; void dshListSessions; void dshParse; // dsh 同样按需接入
+
 
   return { harnesses, ingested, failed, totalErrors, degraded, stats: globalStats() };
 }

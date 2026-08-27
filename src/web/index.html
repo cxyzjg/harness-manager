@@ -283,79 +283,55 @@ var sessTimer = null;
 var _view = "sessions"; // 当前子视图: sessions(列表) / review(审查回放), 轮询只在 sessions 时继续
 async function loadSessionsPage() {
   _view = "sessions";
-  var pair = await Promise.all([api("/api/hub"), api("/api/metrics")]);
-  var hub = pair[0], ms = pair[1];
-  var metricsById = new Map((ms||[]).map(function(m){return [m.sessionId,m];}));
-var rows = (hub.sessions||[]).slice(0,60).map(function(s){
-    var m = metricsById.get(s.id);
-    var oc = s.outcome;
-    var grade = m?'<span class="tag '+(m.reliability.grade==="A"?"green":m.reliability.grade==="B"?"yellow":"red")+'">'+m.reliability.grade+"</span>":"—";
+  var pair = await Promise.all([api("/api/v2/sessions"), api("/api/v2/fleet")]);
+  var list = pair[0] || [];
+  var fleet = pair[1] || {};
+  var rows = list.slice().sort(function(a,b){ return (b.started_at||"").localeCompare(a.started_at||""); }).slice(0,80).map(function(s){
+    var st = s.stats || {};
+    var degradedTag = s.degraded ? ' <span class="tag red">降级</span>' : "";
     return "<tr>" +
-      "<td>"+(oc?(oc.level==="high"?"🟢":oc.level==="medium"?"🟡":"🔴")+oc.score:(m?m.reliability.grade:"—"))+"</td>" +
-      '<td><a href="#" onclick="showReview(\''+esc(s.id)+'\');return false;" class="mono">'+esc(s.id.slice(0,18))+"</a></td>" +
+      '<td><a href="#" onclick="showReview(\''+esc(s.id)+'\');return false;" class="mono">'+esc(s.id.slice(s.id.indexOf(":")+1, s.id.indexOf(":")+19))+"</a></td>" +
       "<td>"+esc(s.harness)+"</td>" +
-      "<td>"+esc((s.startedAt||"").slice(0,10))+"</td>" +
-      "<td>"+s.messages+"/"+s.tools.length+(s.storyCount?" /"+s.storyCount+"🧠":"")+"</td>" +
-      "<td>"+(m?m.performance.turns:"-")+"t</td>" +
-      "<td>"+grade+"</td>" +
-      '<td class="muted">'+esc((s.cwd||"").slice(0,30))+"</td>" +
+      "<td>"+esc((s.started_at||"").slice(0,10))+"</td>" +
+      "<td>"+(st.turns||0)+"t/"+(st.tools||0)+"🛠/"+(st.thinking||0)+"💭</td>" +
+      "<td>"+((st.tokensIn||st.tokensOut)?fmt(st.tokensIn+st.tokensOut):"—")+"</td>" +
+      "<td>"+(s.model?esc(s.model):'—')+"</td>" +
+      '<td class="muted">'+esc((s.cwd||"").slice(-30))+degradedTag+"</td>" +
     "</tr>";
   }).join("");
   $("#content").innerHTML =
-    '<div class="panel"><h2>会话列表 (点击进入审查回放)</h2>' +
-      '<table><thead><tr><th>成效</th><th>id</th><th>harness</th><th>日期</th><th>消息/工具/思考</th><th>turns</th><th>可靠</th><th>项目</th></tr></thead><tbody>'+rows+"</tbody></table></div>";
-  clearTimeout(sessTimer);
-  sessTimer = setTimeout(function(){ if(_view==="sessions" && document.querySelector('nav button.active')?.dataset.page==="sessions") loadSessionsPage(); },5000);
+    '<div class="panel"><h2>会话历史 (统一库: '+list.length+' 会话 · 全局等级 <span class="tag yellow">'+(fleet.globalGrade||"-")+'</span> · 错误率 '+(fleet.errorRate*100).toFixed(1)+'% · 每2分钟自动同步)</h2>' +
+      '<table><thead><tr><th>id</th><th>harness</th><th>日期</th><th>turn/工具/思考</th><th>token</th><th>模型</th><th>项目</th></tr></thead><tbody>'+(rows || '<tr><td colspan="7" class="muted">暂无。点击右上"🔄刷新数据"</td></tr>')+'</tbody></table></div>';
 }
 
-var _reviewData = null; // 当前审查回放数据(分批渲染用)
-var _reviewShown = 0;
-function renderTurnBatch(list, from, to) {
-  return list.slice(from, to).map(function(t){
-    var think=(t.thinking||[]).map(function(th){return '<div style="color:#d8c48a;font-size:12px;margin:2px 0">💭 '+esc((th.text||"").replace(/\s+/g," ").slice(0,140))+"…</div>";}).join("");
-    var tools=(t.tools||[]).slice(0,6).map(function(tc){return '<div style="color:var(--accent);font-size:12px">🛠 '+esc(tc.name)+' <span class="muted">'+esc(tc.input||"")+"</span></div>";}).join("")+((t.tools.length>6)?'<div class="muted" style="font-size:11px">…共'+t.tools.length+"个</div>":"");
-    var out=(t.textOutput&&t.textOutput[0])?'<div class="muted" style="font-size:12px;margin:3px 0">↩ '+esc(String(t.textOutput[0]).replace(/\s+/g," ").slice(0,110))+"</div>":"";
-    return '<div class="panel" style="margin:8px 0;padding:10px 14px;border-left:3px solid var(--line)">' +
-      "<div><b>[turn "+t.index+"]</b> <span class=\"muted\">"+esc((t.ts||"").slice(11,19))+"</span> "+esc((t.userInput||"").slice(0,80))+
-      ' <span class="tag" style="margin-left:8px">所见: '+t.contextAtTurn.messages+"msg/"+t.contextAtTurn.thinking+"💭/"+t.contextAtTurn.tools+"🛠</span></div>" +
-      think+tools+out+"</div>";
-  }).join("");
-}
-function loadMoreTurns() {
-  var container = document.getElementById("turns-body");
-  if (!container || !_reviewData) return;
-  var list = (_reviewData.turns && _reviewData.turns.list) || [];
-  var total = _reviewData.turns ? _reviewData.turns.total : 0;
-  var next = Math.min(_reviewShown + 25, total);
-  var btn = document.getElementById("load-more-btn");
-  if (btn) btn.remove();
-  container.insertAdjacentHTML("beforeend", renderTurnBatch(list, _reviewShown, next));
-  _reviewShown = next;
-  if (_reviewShown < total) {
-    container.insertAdjacentHTML("beforeend", '<div id="load-more-btn" style="text-align:center;margin:10px"><button class="op" onclick="loadMoreTurns()">' + "显示更多 ("+_reviewShown+"/"+total+")</button></div>");
-  }
-}
 async function showReview(id) {
-  _view = "review"; // 进入审查回放, 停止列表轮询(避免被踢回)
-  var r = await api("/api/session-review/" + encodeURIComponent(id));
-  if (!r || r.error) return toast("无法加载会话审查");
-  var m = r.metrics, oc = r.outcome;
-  // 分批渲染: 首屏25个turn, 其余点显示更多(防大会话卡顿)
-  _reviewData = r;
-  var list = (r.turns&&r.turns.list)||[];
+  _view = "review";
+  toast("加载审查回放…");
+  var r = await api("/api/v2/review?id=" + encodeURIComponent(id));
+  if (!r) return toast("未找到该会话(先点右上角刷新数据同步)");
+  var m = (window._v2Fleet) || null;
+  var t0 = r.totals;
+  // 分批渲染 turns
+  _reviewData = { turns: { total: r.totals.turns, list: r.turns.map(function(t, idx){
+    return { index: t.index, ts: t.ts, userInput: t.userInput,
+             thinking: (t.thinking||[]).map(function(th){return {text: th.text};}),
+             tools: (t.tools||[]).map(function(tc){return {name: tc.name, input: typeof tc.input==="string"?tc.input:JSON.stringify(tc.input), durationMs: tc.durationMs, error: tc.error};}),
+             textOutput: [], contextAtTurn: t.contextBefore };
+  })}};
+  var list = _reviewData.turns.list;
   var first = renderTurnBatch(list, 0, Math.min(25, list.length));
   _reviewShown = Math.min(25, list.length);
-  var moreBtn = (_reviewShown < list.length) ? '<div id="load-more-btn" style="text-align:center;margin:10px"><button class="op" onclick="loadMoreTurns()">' + "显示更多 ("+_reviewShown+"/"+list.length+")" + "</button></div>" : "";
+  var moreBtn = (_reviewShown < list.length) ? '<div id="load-more-btn" style="text-align:center;margin:10px"><button class="op" onclick="loadMoreTurns()">' + "显示更多 ("+_reviewShown+"/"+list.length+")</button></div>" : "";
   $("#content").innerHTML =
-    '<button onclick="loadSessionsPage()" style="background:none;border:none;color:var(--accent);cursor:pointer;margin-bottom:10px">← 返回</button>' +
+    '<button onclick="loadSessionsPage()" style="background:none;border:none;color:var(--accent);cursor:pointer;margin-bottom:10px">← 返回列表</button>' +
     '<div class="cards">' +
-      '<div class="card"><div class="num">'+(oc?oc.score+"/100":"-")+'</div><div class="label">成效分 '+(oc?"("+oc.level+")":"")+"</div></div>" +
-      '<div class="card"><div class="num">'+(m?m.reliability.grade:"-")+'</div><div class="label">可靠性(错误率'+(m?(m.reliability.errorRate*100).toFixed(1):"-")+"%)</div></div>" +
-      '<div class="card"><div class="num">'+(r.turns?r.turns.total:"-")+'</div><div class="label">turns (工具'+r.toolCount+")</div></div>" +
-      '<div class="card"><div class="num">'+fmt(r.tokenUsage?r.tokenUsage.total:0)+'</div><div class="label">token</div></div>' +
-    "</div>" +
-    ((oc&&oc.signals.length)?('<div class="panel"><h2>成效依据</h2>'+oc.signals.map(function(s2){return "<div>• "+esc(s2)+"</div>";}).join("")+"</div>"):"") +
-    '<div class="panel"><h2>审查回放 ('+(r.turns?r.turns.total:0)+" turns — 思考为什么/工具做什么/agent 当时所见)</h2></div>" +
+      '<div class="card"><div class="num">'+r.totals.turns+'</div><div class="label">turns</div></div>' +
+      '<div class="card"><div class="num">'+fmt(r.totals.tools)+'</div><div class="label">工具调用</div></div>' +
+      '<div class="card"><div class="num">'+fmt(r.totals.thinkingBlocks)+'</div><div class="label">思考块</div></div>' +
+      '<div class="card"><div class="num">'+fmt((r.totals.tokensIn||0)+(r.totals.tokensOut||0))+'</div><div class="label">token (in '+fmt(r.totals.tokensIn||0)+')</div></div>' +
+    '</div>' +
+    '<div class="panel"><h2>审查回放 — '+esc(r.session.harness)+' · '+esc((r.session.started_at||"").slice(0,16))+' · '+esc(r.session.cwd||"")+(r.session.degraded?' <span class="tag red">部分数据降级</span>':"")+'</h2>' +
+    '<p class="muted" style="font-size:12px">每 turn 展示: 用户输入 → 💭思考(为什么) → 🛠工具(做什么,含耗时/错误) → agent 当时所见上下文构成</p></div>' +
     '<div id="turns-body" style="max-height:70vh;overflow:auto">'+first+moreBtn+"</div>";
 }
 
