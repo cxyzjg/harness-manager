@@ -4,7 +4,7 @@
  *
  * 与旧 turnView(每次重解析JSONL)不同, 这里全部走SQL索引, 大库不再卡顿。
  */
-import { getDb, getTurns, getToolCalls, getThinkings, getSession } from "./store.js";
+import { getDb, getTurns, getToolCalls, getThinkings, getSession, listSessions } from "./store.js";
 import type { Turn, ThinkingBlock, ToolCallRecord, UnifiedSession } from "../core/schema.js";
 
 /** 前缀 -> 完整session_id */
@@ -156,4 +156,109 @@ export function fleetMetrics(): {
     tokenOut: totals.tout,
     globalGrade: grade,
   };
+}
+
+/** 指标下钻: 错误调用明细(哪个会话/turn/工具/错误内容) */
+export function errorDrilldown(limit = 50): {
+  session_id: string;
+  turn_idx: number;
+  name: string;
+  input?: unknown;
+  output?: unknown;
+  started_at?: string;
+}[] {
+  const rows = getDb()
+    .prepare(`
+      SELECT tc.session_id, t.idx AS turn_idx, tc.name, tc.input, tc.output, tc.started_at
+      FROM tool_calls tc LEFT JOIN turns t ON t.id = tc.turn_id
+      WHERE tc.is_error = 1
+      ORDER BY tc.started_at DESC LIMIT ?
+    `)
+    .all(limit) as { session_id: string; turn_idx: number | null; name: string; input: string | null; output: string | null; started_at: string | null }[];
+  return rows.map((r) => ({
+    session_id: r.session_id,
+    turn_idx: r.turn_idx ?? -1,
+    name: r.name,
+    input: safeParse(r.input),
+    output: safeParse(r.output),
+    started_at: r.started_at ?? undefined,
+  }));
+}
+
+/** 指标下钻: 重试对(相邻同名同参) */
+export function retryDrilldown(limit = 30): { session_id: string; name: string; started_at?: string }[] {
+  const rows = getDb()
+    .prepare(`
+      SELECT a.session_id, a.name, a.started_at FROM tool_calls a
+      WHERE EXISTS (
+        SELECT 1 FROM tool_calls b
+        WHERE b.session_id = a.session_id AND b.name = a.name AND b.input IS a.input
+          AND b.rowid = a.rowid - 1
+      ) ORDER BY a.started_at DESC LIMIT ?
+    `)
+    .all(limit) as never[];
+  return rows as never[];
+}
+
+/** 会话级指标明细(供逐会话等级列表+下钻) */
+export function perSessionReliability(): {
+  sessionId: string;
+  harness: string;
+  cwd?: string;
+  turns: number;
+  tools: number;
+  errors: number;
+  errorRate: number;
+  retries: number;
+  retryRate: number;
+  emptyTurns: number;
+  grade: string;
+}[] {
+  const d = getDb();
+  const sessions = listSessions();
+  const out: ReturnType<typeof perSessionReliability> = [];
+  for (const s of sessions) {
+    const one = (sql: string): Record<string, unknown> => d.prepare(sql).get(s.id) as never;
+    const tools = (one("SELECT COUNT(*) AS n FROM tool_calls WHERE session_id=?") as { n: number }).n;
+    const errors = (one("SELECT COUNT(*) AS n FROM tool_calls WHERE session_id=? AND is_error=1") as { n: number }).n;
+    const turnsRow = one("SELECT COUNT(*) AS n FROM turns WHERE session_id=?") as { n: number };
+    const retries = (d.prepare(`
+      SELECT COUNT(*) AS n FROM tool_calls a
+      WHERE a.session_id = ? AND EXISTS (
+        SELECT 1 FROM tool_calls b WHERE b.session_id = a.session_id
+          AND b.name = a.name AND b.input IS a.input AND b.rowid = a.rowid - 1
+      )`).get(s.id) as { n: number }).n;
+    const emptyTurns = (d.prepare(`
+      SELECT COUNT(*) AS n FROM turns t WHERE t.session_id=?
+        AND NOT EXISTS (SELECT 1 FROM thinkings th WHERE th.turn_id=t.id)
+        AND NOT EXISTS (SELECT 1 FROM tool_calls tc WHERE tc.turn_id=t.id)`).get(s.id) as { n: number }).n;
+    const errRate = tools ? errors / tools : 0;
+    const retRate = tools ? retries / tools : 0;
+    const empRate = turnsRow.n ? emptyTurns / turnsRow.n : 0;
+    const score2 = 100 - errRate * 400 - retRate * 200 - empRate * 100;
+    const grade = score2 >= 85 ? "A" : score2 >= 65 ? "B" : score2 >= 40 ? "C" : "D";
+    out.push({
+      sessionId: s.id,
+      harness: s.harness,
+      cwd: s.cwd,
+      turns: turnsRow.n,
+      tools,
+      errors,
+      errorRate: +errRate.toFixed(3),
+      retries,
+      retryRate: +retRate.toFixed(3),
+      emptyTurns,
+      grade,
+    });
+  }
+  return out.sort((a, b) => b.errorRate - a.errorRate || b.tools - a.tools);
+}
+
+function safeParse(s: string | null): unknown {
+  if (s == null) return undefined;
+  try {
+    return JSON.parse(s);
+  } catch {
+    return s;
+  }
 }

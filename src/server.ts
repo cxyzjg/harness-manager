@@ -83,6 +83,12 @@ const routes: Record<string, (url: URL) => Promise<unknown> | unknown> = {
     return import("./db/reviewQuery.js").then(({ buildReviewFromDb }) => buildReviewFromDb(id));
   },
   "/api/v2/fleet": () => import("./db/reviewQuery.js").then(({ fleetMetrics }) => fleetMetrics()),
+  "/api/v2/reliability": () =>
+    import("./db/reviewQuery.js").then(({ perSessionReliability, errorDrilldown, retryDrilldown }) => ({
+      sessions: perSessionReliability(),
+      errors: errorDrilldown(30),
+      retries: retryDrilldown(15),
+    })),
   "/api/dash": async () => {
     // 仪表盘: 纯量化指标聚合
     const [{ aggregateTokens }, { assessSkillHealth, healthSummary }, { skillUsageStats }] = await Promise.all([

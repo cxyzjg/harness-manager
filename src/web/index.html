@@ -117,6 +117,40 @@ var livePaused = false;
 var liveLines = [];
 const pages = { dash: loadDash, skills: loadSkills, sessions: loadSessionsPage, live: loadLivePage };
 
+async function showReliability() {
+  _view = "reliability";
+  var d = await api("/api/v2/reliability");
+  if (!d) return toast("无数据");
+  // 错误下钻
+  var errRows = (d.errors||[]).map(function(e){
+    return "<tr><td>"+esc(e.name)+"</td><td class='muted'>"+esc(typeof e.input==="string"?e.input.slice(0,60):JSON.stringify(e.input||"").slice(0,60))+"</td><td class='muted'>"+esc((e.started_at||"").slice(0,16))+"</td>" +
+      '<td><button class="op" onclick="showReview(\''+esc(e.session_id)+'\')">查看会话 turn'+(e.turn_idx>=0?e.turn_idx:"")+'</button></td></tr>';
+  }).join("");
+  var retryRows = (d.retries||[]).map(function(e){
+    return "<tr><td>"+esc(e.name)+"</td><td class='muted'>"+esc((e.started_at||"").slice(0,16))+"</td>" +
+      '<td><button class="op" onclick="showReview(\''+esc(e.session_id)+'\')">查看会话</button></td></tr>';
+  }).join("");
+  var sessRows = (d.sessions||[]).slice().sort(function(a,b){ return b.errors-a.errors || b.tools-a.tools; }).map(function(m){
+    var g = m.grade;
+    var tag = '<span class="tag '+(g==="A"?"green":g==="B"?"yellow":"red")+'">'+g+"</span>";
+    return "<tr><td>"+tag+"</td>" +
+      '<td><a href="#" onclick="showReview(\''+esc(m.sessionId)+'\');return false;" class="mono">'+esc(m.sessionId.slice(m.sessionId.indexOf(":")+1, m.sessionId.indexOf(":")+19))+"</a></td>" +
+      "<td>"+esc(m.harness)+"</td><td>"+m.turns+"t/"+m.tools+"🛠</td>" +
+      "<td>"+m.errors+(m.errors?' <span class="tag red">'+(m.errorRate*100).toFixed(1)+"%</span>":"")+"</td>" +
+      "<td>"+m.retries+" ("+(m.retryRate*100).toFixed(1)+"%)</td>" +
+      "<td>"+m.emptyTurns+"</td>" +
+      '<td class="muted">'+esc((m.cwd||"").slice(-28))+"</td></tr>";
+  }).join("");
+  $("#content").innerHTML =
+    '<button onclick="loadDash()" style="background:none;border:none;color:var(--accent);cursor:pointer;margin-bottom:10px">← 返回仪表盘</button>' +
+    '<div class="panel"><h2>🔴 错误调用下钻 ('+(d.errors||[]).length+') — 哪个工具/什么错/哪个turn, 点进去看现场</h2>' +
+      '<table><thead><tr><th>工具</th><th>入参/输出摘录</th><th>时间</th><th></th></tr></thead><tbody>'+(errRows || '<tr><td colspan="4" class="muted">无错误调用 ✓</td></tr>')+'</tbody></table></div>' +
+    '<div class="panel"><h2>🔁 重试模式 ('+(d.retries||[]).length+') — 相邻同名同参调用</h2>' +
+      '<table><thead><tr><th>工具</th><th>时间</th><th></th></tr></thead><tbody>'+(retryRows || '<tr><td colspan="3" class="muted">无重试模式 ✓</td></tr>')+'</tbody></table></div>' +
+    '<div class="panel"><h2>📋 会话可靠性明细 (按错误数排序, 点击进入审查回放)</h2>' +
+      '<table><thead><tr><th>等级</th><th>id</th><th>harness</th><th>规模</th><th>错误</th><th>重试</th><th>空转</th><th>项目</th></tr></thead><tbody>'+sessRows+"</tbody></table></div>";
+}
+
 async function loadLivePage() {
   _view2 = "live";
   var liveIcon = livePaused ? "▶ 继续" : "⏸ 暂停";
@@ -196,8 +230,9 @@ async function loadDash() {
     '<div class="cards">' + c1 + "</div>" +
     '<div class="row">' +
       '<div class="panel"><h2>可靠性量化</h2>' +
-        '<p>已量化 ' + rel.quantified + ' 会话 · 平均错误率 <b>' + rel.avgErrorRate + '%</b> · 平均重试率 <b>' + rel.avgRetryRate + '%</b></p>' +
-        '<p style="margin-top:6px"><span class="tag green">A:' + (rel.grades?.A||0) + '</span> <span class="tag yellow">B:' + (rel.grades?.B||0) + '</span> <span class="tag red">C:' + (rel.grades?.C||0) + " D:" + (rel.grades?.D||0) + "</span></p>" +
+        '<p>已量化 ' + rel.quantified + ' 会话 · 平均错误率 <a href="#" onclick="showReliability();return false;"><b>' + rel.avgErrorRate + '%</b></a> · 平均重试率 <b>' + rel.avgRetryRate + '%</b></p>' +
+        '<p style="margin-top:6px"><span class="tag green">A:' + (rel.grades?.A||0) + '</span> <span class="tag yellow">B:' + (rel.grades?.B||0) + '</span> <span class="tag red">C:' + (rel.grades?.C||0) + " D:" + (rel.grades?.D||0) + '</span>' +
+        ' <button class="op" onclick="showReliability()">🔍 下钻明细</button></p>' +
       "</div>" +
       '<div class="panel"><h2>技能健康</h2>' +
         '<p>🟢 ' + (hSum.healthy||0) + " 健康 · 🟡 " + (hSum.attention||0) + " 需关注 · 🔴 " + (hSum.risk||0) + " 风险</p>" +
