@@ -213,8 +213,11 @@ function rowToSession(r: Record<string, unknown>): UnifiedSession {
 }
 
 export function getSession(id: string): UnifiedSession | null {
-  const r = getDb().prepare("SELECT * FROM sessions WHERE id=?").get(id) as Record<string, unknown> | undefined;
-  return r ? rowToSession(r) : null;
+  // 支持前缀查询(用户常传短id)
+  const exact = getDb().prepare("SELECT * FROM sessions WHERE id=?").get(id) as Record<string, unknown> | undefined;
+  if (exact) return rowToSession(exact);
+  const like = getDb().prepare("SELECT * FROM sessions WHERE id LIKE ? LIMIT 1").all(id + "%") as Record<string, unknown>[];
+  return like[0] ? rowToSession(like[0]) : null;
 }
 
 export function getTurns(sessionId: string): Turn[] {

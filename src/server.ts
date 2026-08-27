@@ -73,6 +73,13 @@ function sessionDetail(id: string) {
 
 const routes: Record<string, (url: URL) => Promise<unknown> | unknown> = {
   "/api/dashboard": () => dashboard(),
+  "/api/v2/sessions": () =>
+    import("./db/store.js").then(({ listSessions }) => listSessions()),
+  "/api/v2/review": (url) => {
+    const id = url.searchParams.get("id") ?? "";
+    return import("./db/reviewQuery.js").then(({ buildReviewFromDb }) => buildReviewFromDb(id));
+  },
+  "/api/v2/fleet": () => import("./db/reviewQuery.js").then(({ fleetMetrics }) => fleetMetrics()),
   "/api/dash": async () => {
     // 仪表盘: 纯量化指标聚合
     const [{ aggregateTokens }, { assessSkillHealth, healthSummary }, { skillUsageStats }] = await Promise.all([
@@ -336,7 +343,10 @@ export function startServer(): void {
         if (path === "/api/rescan" && req.method === "POST") {
           cached = await scan();
           saveCache(cached);
-          return json(res, { ok: true, sessions: cached.sessions.length, resources: cached.resources.length });
+          // 同步入统一库(SQLite)
+          const { runIngest } = await import("./db/ingest.js");
+          const report = runIngest();
+          return json(res, { ok: true, sessions: cached.sessions.length, resources: cached.resources.length, v2: report });
         }
         // 会话执行轨迹 + 思考
         const sm = path.match(/^\/api\/sessions\/(.+)\/story$/);
@@ -377,6 +387,14 @@ export function startServer(): void {
     saveCache(r);
     console.log(`\u2713 \u542f\u52a8\u91cd\u626b: ${r.sessions.length} \u4f1a\u8bdd / ${r.resources.length} \u8d44\u6e90`);
   }).catch(() => {});
+
+  // 启动即同步统一库(SQLite, 阶段1/2链路)
+  import("./db/ingest.js")
+    .then(({ runIngest }) => {
+      const rep = runIngest();
+      console.log(`\u2713 \u7edf\u4e00\u5e93\u540c\u6b65: ${rep.stats.sessions} \u4f1a\u8bdd(${rep.harnesses.join("+")}), \u5931\u8d25${rep.failed}`);
+    })
+    .catch(() => {});
 
   // 定时自动扫描(config.scanIntervalMs, 默认60s): 新会话/新技能自动入库
   setInterval(async () => {
