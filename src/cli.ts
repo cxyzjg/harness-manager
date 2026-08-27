@@ -391,10 +391,20 @@ async function main(): Promise<void> {
     }
     case "dedupe": {
       const r = await ensureScan();
-      const dupes = detectDupes(r.resources);
-      if (useJson) return out(dupes);
-      for (const d of dupes) console.log(`[${d.kind}] ${d.reason}\n    ${d.names.join(", ")}`);
-      if (!dupes.length) console.log("未发现去重候选");
+      // 结构去重(同名) + 语义去重(阶段4新能力: 名称/描述/达成什么三维相似度)
+      const { semanticDedupe } = await import("./core/skills/semanticDedupe.js");
+      const structural = detectDupes(r.resources);
+      const semantic = semanticDedupe().filter((x) => x.score >= 0.52);
+      if (useJson) return out({ structural, semantic });
+      console.log("\n[结构去重 - 同名冲突]");
+      for (const d of structural) console.log(`  [${d.kind}] ${d.reason}\n      ${d.names.join(", ")}`);
+      if (!structural.length) console.log("  无");
+      console.log("\n[语义去重 - 功能重叠候选] (名称/描述/达成什么三维相似, 需人工拍板)");
+      for (const sd of semantic.slice(0, 15)) {
+        const mark = sd.verdict === "semantic-duplicate" ? "🔴" : "🟡";
+        console.log(`  ${mark} ${String(sd.score).padEnd(6)} [${sd.a}] <-> [${sd.b}]  (${sd.signals.join(", ")})`);
+      }
+      if (!semantic.length) console.log("  无");
       break;
     }
     case "memories": {

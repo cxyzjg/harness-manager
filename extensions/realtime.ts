@@ -89,7 +89,7 @@ export default function (pi: ExtensionAPI): void {
       };
     };
     const skills = e.systemPromptOptions?.skills ?? [];
-    const cwd = e.systemPromptOptions?.cwd ?? "";
+    const cwd = e.systemPromptOptions?.cwd || process.cwd();
     const prompt = (e.prompt ?? "").slice(0, 200);
     if (skills.length) {
       logEvent("skill_trigger", {

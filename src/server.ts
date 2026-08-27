@@ -83,6 +83,19 @@ const routes: Record<string, (url: URL) => Promise<unknown> | unknown> = {
     return import("./db/reviewQuery.js").then(({ buildReviewFromDb }) => buildReviewFromDb(id));
   },
   "/api/v2/fleet": () => import("./db/reviewQuery.js").then(({ fleetMetrics }) => fleetMetrics()),
+  "/api/v2/skill-effects": async () => {
+    const [{ linkSkillEffects }, { assessSkillHealth }] = await Promise.all([
+      import("./core/skills/effectLink.js"),
+      import("./monitor/skillHealth.js"),
+    ]);
+    const sessions = (cached?.sessions ?? []).map((s) => ({ id: s.id, harness: s.harness, started_at: s.startedAt, cwd: s.cwd }));
+    // 成效分映射
+    const { evaluateAll } = await import("./monitor/sessionOutcome.js");
+    const outcomes = evaluateAll(cached?.sessions ?? []);
+    const outcomeOf = new Map(outcomes.map((o) => [o.sessionId, o.score]));
+    const effects = linkSkillEffects(sessions, outcomeOf);
+    return { effects, note: "delta>0 表示该技能出现的会话成效高于全局基线" };
+  },
   "/api/v2/reliability": () =>
     import("./db/reviewQuery.js").then(({ perSessionReliability, errorDrilldown, retryDrilldown }) => ({
       sessions: perSessionReliability(),
