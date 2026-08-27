@@ -113,7 +113,7 @@ async function main(): Promise<void> {
         }
         for (const [cat, list] of byCat) {
           console.log(`\n${cat} (${list.length}):`);
-          list.forEach((i) => console.log(`  ${i.name} — ${i.cnName}: ${i.oneLiner}`));
+          list.forEach((i) => console.log(`  ${i.name} — ${i.cnName}: ${i.what}`));
         }
         break;
       }
@@ -122,8 +122,9 @@ async function main(): Promise<void> {
       if (useJson) return out(info);
       console.log(`📌 ${info.cnName} (${info.name})`);
       console.log(`   分类: ${info.category}`);
-      console.log(`   说明: ${info.oneLiner}`);
-      console.log(`   用法: ${info.usage}`);
+      console.log(`   做什么: ${info.what}`);
+      console.log(`   何时用: ${info.when}`);
+      console.log(`   达成什么: ${info.outcome}`);
       break;
     }
     case "suggest": {
@@ -150,7 +151,7 @@ async function main(): Promise<void> {
       const cat = matchedCat ?? "系统工具";
       const list = allSkillInfos().filter((i) => i.category === cat);
       console.log(`按意图 "${args.join(" ")}" 推荐 (${cat}):`);
-      list.forEach((i) => console.log(`  • ${i.name} — ${i.cnName}: ${i.oneLiner}`));
+      list.forEach((i) => console.log(`  • ${i.name} — ${i.cnName}: ${i.what} | 达成: ${i.outcome}`));
       if (!matchedCat) console.log("  (未能识别场景，默认系统工具，可更具体描述)");
       break;
     }

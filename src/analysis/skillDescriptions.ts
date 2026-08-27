@@ -1,6 +1,6 @@
 /**
- * 技能中文说明库：每个技能的中文名 + 一句话 + 使用提示
- * 供 CLI `hm skill <name>` / Web 资源页 / 场景推荐使用。
+ * 技能中文说明库：每个技能的三要素（是什么/何时用/达成什么）+ 中文名
+ * 供 CLI `hm skill <name>` / Web 技能中心 / 场景推荐使用。
  */
 import { categoryOf } from "./skillCategories.js";
 
@@ -8,96 +8,99 @@ export interface SkillInfo {
   name: string;
   category: ReturnType<typeof categoryOf>;
   cnName: string; // 中文名
-  oneLiner: string; // 一句话说明
-  usage: string; // 怎么用/何时用
+  what: string; // 是做什么的
+  when: string; // 何时用
+  outcome: string; // 达成什么
 }
 
-const INFOS: Record<string, Omit<SkillInfo, "category" | "name">> = {
+type Row = [cnName: string, what: string, when: string, outcome: string];
+
+const ROWS: Record<string, Row> = {
   // ---- 需求规划 ----
-  grilling: { cnName: "拷问设计", oneLiner: "连环追问把方案逼问清楚", usage: "动手前想验证设计是否靠谱时使用，会让你重新审视假设" },
-  "grill-me": { cnName: "拷问入口", oneLiner: "转发到 grilling 的入口", usage: "简单触发设计拷问，无工作目录时用" },
-  "grill-with-docs": { cnName: "拷问+留档", oneLiner: "拷问同时产出 ADR/术语表", usage: "有工作目录时推荐用，边设计边留下决策痕迹" },
-  "loop-me": { cnName: "流程拷问", oneLiner: "针对要建的流程反复拷问规格", usage: "有模糊的流程想法想变清晰需求" },
-  "wait-what": { cnName: "重讲一遍", oneLiner: "停下要求重讲没说明白的话", usage: "需求/指令含糊时，让对话回到正轨" },
-  "to-questionnaire": { cnName: "需求问卷", oneLiner: "把决策变问卷给别人填", usage: "需求要问别人/收集意见时" },
-  wayfinder: { cnName: "决策地图", oneLiner: "超大工程拆成决策地图", usage: "多会话大项目，规划全貌和里程碑" },
-  brainstorming: { cnName: "头脑风暴", oneLiner: "开放式探索该做什么", usage: "从零开始、需求未定时的发散思考" },
-  triage: { cnName: "问题分诊", oneLiner: "把 issue/PR 分类验证排优先级", usage: "一堆待办要理清轻重缓急" },
+  grilling: ["拷问设计", "对方案/计划连环追问，暴露假设漏洞", "动手之前想验证一个设计是否站得住", "一份经过压力测试的清晰决策，避免方向性返工"],
+  "grill-me": ["拷问入口", "grilling 的轻量入口（无工作目录时用）", "临时想被拷问，不留文档", "同 grilling，得到被检验过的方案"],
+  "grill-with-docs": ["拷问+留档", "拷问过程中同步产出 ADR/术语表/CONTEXT.md", "在仓库里做设计，且需要留下决策痕迹", "设计决策文档化，团队可追溯每个'为什么'"],
+  "loop-me": ["流程拷问", "针对要建的自动化流程反复打磨规格", "有模糊的流程想法想落地", "一套边界清晰的流程规格"],
+  "wait-what": ["重讲一遍", "检测到表述未对齐时要求重新表达", "对方/需求描述含糊或矛盾时", "消除误解，对话回到同一频道"],
+  "to-questionnaire": ["需求问卷", "把说不清的决策转成问卷收集他人意见", "需要征求用户/干系人意见", "一份可直接发放的结构化问卷"],
+  wayfinder: ["决策地图", "超大工程拆解为决策工单地图", "工作量大到单个会话装不下", "一张全局路线图 + 可独立执行的工单序列"],
+  brainstorming: ["头脑风暴", "需求未定时的开放式探索与发散", "从零开始不知道该做什么", "若干候选方向 + 各自取舍分析"],
+  triage: ["问题分诊", "issue/PR 分类验证并写出简报", "积压一堆问题要理优先级", "分好类排好序的可执行清单"],
   // ---- 设计架构 ----
-  "codebase-design": { cnName: "深模块设计", oneLiner: "设计模块接口/可测性", usage: "设计或重构模块边界时" },
-  "domain-modeling": { cnName: "领域建模", oneLiner: "打磨领域模型写 CONTEXT/ADR", usage: "建立项目领域词汇、记录关键决策" },
-  "improve-codebase-architecture": { cnName: "架构体检", oneLiner: "扫描代码找改进点出报告", usage: "想评估架构质量时" },
-  prototype: { cnName: "原型验证", oneLiner: "一次性代码验证想法", usage: "不确定方案时先快速试" },
-  "to-spec": { cnName: "转技术规格", oneLiner: "把对话写成规格文档", usage: "需求已明确要出正式规格" },
-  "to-tickets": { cnName: "拆工单", oneLiner: "把计划/规格拆成工单", usage: "任务拆分、排执行顺序" },
-  implement: { cnName: "实现", oneLiner: "按规格/工单写代码", usage: "正式开发实现时" },
-  "implement-spec": { cnName: "按规格实现", oneLiner: "专门按规格文档实现", usage: "有 spec 要落地代码时" },
+  "codebase-design": ["深模块设计", "按深模块方法论设计接口与模块边界", "新模块设计或旧模块重构", "高内聚低耦合、可独立测试的模块划分"],
+  "domain-modeling": ["领域建模", "梳理领域概念，沉淀 CONTEXT.md 与 ADR", "项目词汇混乱或关键决策无记录", "统一领域语言 + 决策记录"],
+  "improve-codebase-architecture": ["架构体检", "扫描代码找deepening机会出HTML报告", "想系统性评估架构质量", "改进点清单+可视化报告"],
+  prototype: ["原型验证", "快速搭一次性代码回答设计疑问", "方案拿不准、必须跑起来才知道", "用最小成本验证/否决一个设计假设"],
+  "to-spec": ["转技术规格", "把当前对话整理为正式技术规格", "需求已在对话中明确，需要落成文档", "一份完整的 spec 文档发布到追踪器"],
+  "to-tickets": ["拆工单", "把计划/spec 拆成可独立执行的工单", "任务太大太散，需要拆分执行", "一串自包含、有阻塞关系的 tracer-bullet 工单"],
+  implement: ["实现", "按工单或指示直接实现功能", "规格已定进入开发", "可工作的代码 + 测试 + review 后提交"],
+  "implement-spec": ["按规格实现", "专门消费 spec 文档的实现流程", "有现成 spec 待编码", "严格贴合规格的实现"],
   // ---- 开发编码 ----
-  tdd: { cnName: "测试驱动", oneLiner: "红-绿-重构循环", usage: "写功能先写测试" },
-  "test-driven-development": { cnName: "测试驱动(备)", oneLiner: "TDD 备选版", usage: "同 tdd" },
-  scaffold: { cnName: "项目脚手架", oneLiner: "生成标准项目结构", usage: "新项目起步" },
-  "scaffold-exercises": { cnName: "练习脚手架", oneLiner: "建练习题目录结构", usage: "做课程/练习题" },
-  "setup-ts-deep-modules": { cnName: "TS深模块配置", oneLiner: "配置 dependency-cruiser", usage: "TS 项目架构落地" },
-  "setup-pre-commit": { cnName: "提交钩子", oneLiner: "配 Husky pre-commit", usage: "提交前自动格式化/检查/测试" },
-  "migrate-to-shoehorn": { cnName: "测试重构", oneLiner: "as 断言改 shoehorn", usage: "测试代码现代化" },
-  "using-git-worktrees": { cnName: "git worktree", oneLiner: "隔离风险改动", usage: "想安全搞实验不污染主目录" },
-  "resolving-merge-conflicts": { cnName: "合并冲突", oneLiner: "解决 git 冲突", usage: "merge/rebase 冲突时" },
+  tdd: ["测试驱动", "红-绿-重构循环写功能", "写任何有行为的代码前", "测试覆盖的行为实现，防过度设计"],
+  "test-driven-development": ["测试驱动(备)", "TDD 的另一个入口", "同 tdd", "同 tdd"],
+  scaffold: ["项目脚手架", "生成标准工程结构与配置", "起新项目", "一套可运行的项目骨架"],
+  "scaffold-exercises": ["练习脚手架", "建练习题的目录/题目/解答结构", "制作课程或编程练习", "符合规范的练习册目录"],
+  "setup-ts-deep-modules": ["TS深模块配置", "接入 dependency-cruiser 约束模块依赖", "TypeScript 项目要固化架构规则", "自动化的依赖边界守护"],
+  "setup-pre-commit": ["提交钩子", "配置 Husky+lint-staged 提交检查", "团队要统一格式/类型/测试门禁", "每次提交自动过格式化和检查"],
+  "migrate-to-shoehorn": ["断言迁移", "把测试里的 as 断言迁到 shoehorn", "测试数据补全需要更安全的方式", "更类型安全的测试改造"],
+  "using-git-worktrees": ["worktree隔离", "git worktree 隔离风险改动", "要做实验性大改又不污染主目录", "主分支零风险的并行实验环境"],
+  "resolving-merge-conflicts": ["合并冲突", "系统化解决 merge/rebase 冲突", "冲突发生后", "干净解决的合并，不丢双方意图"],
   // ---- 质量调试 ----
-  "code-review": { cnName: "代码审查", oneLiner: "双轴审查(规范+需求)", usage: "审查分支/PR" },
-  review: { cnName: "快速审查", oneLiner: "按约定结构审查", usage: "快速 code review" },
-  "diagnosing-bugs": { cnName: "bug诊断", oneLiner: "硬 bug/性能诊断循环", usage: "出 bug 时系统性排查" },
-  "systematic-debugging": { cnName: "系统化调试", oneLiner: "假设驱动调试", usage: "疑难 bug 用假设-验证循环" },
-  "verification-before-completion": { cnName: "完成前验证", oneLiner: "先跑检查再宣称完成", usage: "收尾前验证" },
-  security: { cnName: "安全审计", oneLiner: "查密钥/注入等风险", usage: "安全体检" },
-  "audit-structure": { cnName: "结构审计", oneLiner: "对照标准审计结构", usage: "一致性检查" },
-  debt: { cnName: "技术债", oneLiner: "技术债审计排优先级", usage: "技术债盘点" },
-  optimise: { cnName: "优化扫描", oneLiner: "冗余/死代码清理", usage: "代码清理" },
+  "code-review": ["代码审查", "双轴并行审查（规范+需求符合度）", "审查一个分支/PR/WIP", "两份并列的审查报告与整改清单"],
+  review: ["快速审查", "按项目自身约定做结构化审查", "日常快速 code review", "对照项目规范的审查结论"],
+  "diagnosing-bugs": ["bug诊断循环", "假设驱动的疑难bug排查", "出现难复现/难定位的bug或性能退化", "定位到根因并修复的闭环"],
+  "systematic-debugging": ["系统化调试", "强制假设-验证式调试而非乱猜", "调试反复修不好时", "经过验证的根因分析"],
+  "verification-before-completion": ["完成前验证", "宣称完成前必须实际运行检查", "任务收尾、准备说done之前", "有证据的完成声明，防口头交付"],
+  security: ["安全审计", "扫描密钥泄露/注入/危险模式", "上线前或定期安全体检", "安全风险清单与修复建议"],
+  "audit-structure": ["结构审计", "对照标准结构核查工程一致性", "怀疑项目结构漂移", "结构差距清单"],
+  debt: ["技术债审计", "盘点TODO/坏味道/过期依赖并排优先级", "技术债失控前", "一份带优先级的还债计划 docs/debt.md"],
+  optimise: ["优化扫描", "冗余/效率/死代码全面清扫", "代码库臃肿想瘦身", "删减优化后的干净清单"],
   // ---- 项目进度 ----
-  status: { cnName: "健康快照", oneLiner: "快速项目现状", usage: "中途了解进度" },
-  brief: { cnName: "项目简报", oneLiner: "一页项目概述", usage: "新人 onboarding/回顾" },
-  log: { cnName: "进度日志", oneLiner: "构建状态写 buildplan", usage: "更新进度文档" },
-  nextsteps: { cnName: "下一步", oneLiner: "推导接下来任务", usage: "不知道下一步做啥" },
-  changes: { cnName: "变更记录", oneLiner: "会话改动记录", usage: "记录本次改动" },
-  staging: { cnName: "部署staging", oneLiner: "发布到 staging", usage: "上线前" },
-  rollback: { cnName: "安全回滚", oneLiner: "撤销上次提交/部署", usage: "出错要撤" },
-  restart: { cnName: "会话续接", oneLiner: "恢复上次上下文", usage: "新会话续接" },
-  wrapup: { cnName: "会话收尾", oneLiner: "提交+下一步+变更", usage: "结束一天" },
+  status: ["健康快照", "只读快速盘点项目现状", "会话中途想知道全局状态", "30秒内的现状摘要"],
+  brief: ["项目简报", "生成一页可读的项目概览", "新人上手或自己久别重看", "docs 层的一页纸 onboarding"],
+  log: ["进度日志", "把构建状态写入 buildplan.md", "阶段性进展要落档", "可续接的进度档案"],
+  nextsteps: ["下一步建议", "从当前计划推导接下来3-5件事", "做完一段不知道接着干嘛", "带优先级的待办列表"],
+  changes: ["变更记录", "追加本次会话所有改动到 changes.md", "会话收尾留痕", "完整的变更台账"],
+  staging: ["部署staging", "推送最新构建到预发环境", "验证完准备给他人体验", "staging 上可访问的最新版"],
+  rollback: ["安全回滚", "回退上次提交/部署", "发布出问题需要撤销", "恢复到上一个完好状态"],
+  restart: ["会话续接", "从上次会话的日志恢复上下文", "隔天继续昨天的工作", "无缝接上之前的思路"],
+  wrapup: ["会话收尾", "串起提交/nextsteps/变更记录的收尾流程", "今天到此为止", "干净的落袋：已提交+已记录+明天的路标"],
   // ---- 协作交接 ----
-  handoff: { cnName: "交接文档", oneLiner: "对话压成交接给 agent", usage: "换 agent/续作" },
-  "claude-handoff": { cnName: "交接CC", oneLiner: "交接给 Claude Code", usage: "跨工具交接" },
-  retro: { cnName: "回顾", oneLiner: "编码会话复盘", usage: "回顾会" },
-  "dispatching-parallel-agents": { cnName: "并行分发", oneLiner: "子任务并行给多 agent", usage: "任务可拆分并行" },
-  teach: { cnName: "教学", oneLiner: "教你新技能/概念", usage: "想学习" },
-  "ask-matt": { cnName: "技能路由", oneLiner: "推荐哪个技能/流程", usage: "不确定用哪个技能" },
-  wizard: { cnName: "交互向导", oneLiner: "生成 bash 向导", usage: "需要人工步骤的向导" },
+  handoff: ["交接文档", "压缩当前对话为交接材料", "上下文将满或换 agent", "继任者可独立开工的交接文件"],
+  "claude-handoff": ["交接CC", "把 pi 的会话交给 Claude Code 接手", "想在 CC 里继续这项工作", "跨工具无损接力"],
+  retro: ["回顾复盘", "复盘一次编码会话的好与坏", "一个阶段结束做总结", "可执行的改进要点"],
+  "dispatching-parallel-agents": ["并行分发", "把互不依赖的子任务并发派给多个agent", "存在2个以上可独立推进的任务", "缩短墙钟时间的并行执行"],
+  teach: ["教学", "在工作区里教你一个概念或技能", "遇到不懂的知识点", "结合你项目的讲解与练习"],
+  "ask-matt": ["技能路由", "根据你的处境推荐合适的技能/流程", "面对任务不确定用哪个技能", "明确的技能选择与使用路径"],
+  wizard: ["交互向导", "生成给人手动的 bash 向导脚本", "步骤只能由人来操作(如办证/配密钥)", "一步步跟着走的终端向导"],
   // ---- 沟通写作 ----
-  "writing-for-agents": { cnName: "面向agent写作", oneLiner: "写 AGENTS.md 等", usage: "写文档给 AI 看" },
-  "writing-plans": { cnName: "写计划", oneLiner: "多步骤执行计划", usage: "复杂改动先写计划" },
-  "writing-skills": { cnName: "编技能", oneLiner: "编写/改进 skill", usage: "造新技能" },
-  "writing-beats": { cnName: "写作节奏", oneLiner: "素材编排成节奏", usage: "创作" },
-  "writing-fragments": { cnName: "写作片段", oneLiner: "写作探索", usage: "创作" },
-  "writing-shape": { cnName: "写作结构", oneLiner: "写作结构设计", usage: "创作" },
+  "writing-for-agents": ["面向agent写作", "写给 AI 看的文档写法（AGENTS.md等）", "要让 agent 稳定理解仓库约定", "agent 读得懂、照得做的说明文档"],
+  "writing-plans": ["写计划", "多步多文件改动先写成有序计划", "复杂工作要分段/可暂停/可交接", "带检查点的书面计划 specs/buildplan"],
+  "writing-skills": ["编技能", "编写或改进 SKILL.md 技能", "想把方法论沉淀为技能", "规范可用的新技能"],
+  "writing-beats": ["写作节奏", "把素材编排成叙事节奏", "长文创作初期", "成骨架的故事节拍"],
+  "writing-fragments": ["写作片段", "片段化的写作探索", "灵感碎片期", "可拼装的内容片段"],
+  "writing-shape": ["写作结构", "设计作品整体结构", "有了内容要做成形", "成形的篇章结构"],
   // ---- 系统工具 ----
-  "find-skills": { cnName: "找技能", oneLiner: "发现/安装技能", usage: "想找新技能" },
-  "manage-skills": { cnName: "资源管理", oneLiner: "管理技能/工具/资源", usage: "harness-manager 核心，资源盘点/迁移/去重" },
-  "setup-matt-pocock-skills": { cnName: "技能套件安装", oneLiner: "配置 mattpocock 套件", usage: "首次安装" },
-  "git-guardrails-claude-code": { cnName: "git安全钩子", oneLiner: "拦危险 git 命令", usage: "防误操作" },
-  "using-superpowers": { cnName: "套件引导", oneLiner: "superpowers 引导", usage: "会话启动参考" },
-  "run-tasks": { cnName: "跑任务", oneLiner: "批量执行任务", usage: "批量任务" },
-  "run-all-tasks": { cnName: "跑全部任务", oneLiner: "执行所有任务", usage: "批量任务" },
-  "task-status": { cnName: "任务状态", oneLiner: "查看任务状态", usage: "任务管理" },
-  cost: { cnName: "成本", oneLiner: "用量/成本查看", usage: "CC 侧成本" },
-  learned: { cnName: "学习沉淀", oneLiner: "会话学习记录", usage: "CC 记忆" },
-  memory: { cnName: "记忆", oneLiner: "会话记忆", usage: "CC 记忆" },
-  resume: { cnName: "续接", oneLiner: "恢复会话", usage: "CC 续接" },
+  "find-skills": ["发现技能", "搜索/安装社区技能", "想要某个还不存在的能力", "装上合适的新技能"],
+  "manage-skills": ["资源管理", "harness-manager 核心技能：管理 skills/工具/会话等", "要盘点/迁移/去重/监控资源", "统一受控的资源体系"],
+  "setup-matt-pocock-skills": ["套件安装", "配置 mattpocock 技能集到本仓库", "首次使用这套技能", "就绪的技能配置"],
+  "git-guardrails-claude-code": ["git护栏", "给 Claude Code 加拦截危险 git 命令的钩子", "怕误 push/reset --hard 等", "不可逆 git 操作前的保护网"],
+  "using-superpowers": ["套件引导", "superpowers 套件的总入口与索引", "初次接触该套件", "对整套能力的正确打开方式"],
+  "run-tasks": ["跑任务", "批量执行队列中的任务", "有一批待处理任务", "逐个消化完成任务清单"],
+  "run-all-tasks": ["跑全部任务", "一次性执行所有排队任务", "让机器自己跑完全部", "全部任务的最终结果汇总"],
+  "task-status": ["任务状态", "查看任务完成状态", "想知道任务进行到哪", "当前任务进度的透明视图"],
+  cost: ["成本查看", "统计 token 用量与花费", "关心花了多少钱", "用量成本的量化视图"],
+  learned: ["学习沉淀", "记录会话中学到的经验", "有价值经验要留存", "可复用的经验笔记"],
+  memory: ["记忆", "读写长期记忆文件", "希望跨会话记住关键信息", "持久化的记忆条目"],
+  resume: ["恢复会话", "拉起历史会话继续", "回到之前中断的工作", "恢复现场继续干活"],
 };
 
 export function skillInfo(name: string): SkillInfo | undefined {
-  const base = INFOS[name];
-  if (!base) return undefined;
-  return { name, category: categoryOf(name), ...base };
+  const row = ROWS[name];
+  if (!row) return undefined;
+  return { name, category: categoryOf(name), cnName: row[0], what: row[1], when: row[2], outcome: row[3] };
 }
 
 export function allSkillInfos(): SkillInfo[] {
-  return Object.keys(INFOS).map((n) => skillInfo(n)!);
+  return Object.keys(ROWS).map((n) => skillInfo(n)!);
 }

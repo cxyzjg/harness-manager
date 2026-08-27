@@ -40,6 +40,17 @@
   .op { background:#242933; border:1px solid var(--line); color:var(--fg); padding:3px 8px; border-radius:6px; font-size:11px; cursor:pointer; margin-right:4px; }
   .op:hover { border-color:var(--accent); color:var(--accent); }
   .active-tab { border-color:var(--accent) !important; color:var(--accent) !important; }
+  .term { background:#0a0d10; border:1px solid #1e2630; border-radius:10px; padding:14px 16px; font-family:ui-monospace,SFMono-Regular,Consolas,'Courier New',monospace; font-size:12.5px; line-height:1.75; height:calc(100vh - 210px); overflow-y:auto; }
+  .term-titlebar { display:flex; align-items:center; gap:8px; background:#11161c; margin:-14px -16px 12px; padding:8px 14px; border-bottom:1px solid #1e2630; border-radius:10px 10px 0 0; }
+  .term-dot { width:11px;height:11px;border-radius:50%;display:inline-block; }
+  .term-line { white-space:pre-wrap; word-break:break-all; }
+  .term-ts { color:#4d5866; }
+  .term-think { color:#d8c48a; }
+  .term-tool { color:#5db4ff; }
+  .term-sys { color:#7ee787; }
+  .term-warn { color:#f85149; }
+  .term-cursor { display:inline-block;width:8px;height:15px;background:#7ee787;vertical-align:text-bottom;animation:blink 1s steps(1) infinite; }
+  @keyframes blink { 50% { opacity:0; } }
   a { color:var(--accent); text-decoration:none; }
   .row { display:flex; gap:12px; flex-wrap:wrap; }
   .row > .panel { flex:1; min-width:280px; }
@@ -53,7 +64,8 @@
 <nav id="nav">
   <button data-page="dash" class="active">📊 仪表盘</button>
   <button data-page="skills">🧠 技能中心</button>
-  <button data-page="sessions">💬 会话中心</button>
+  <button data-page="sessions">💬 会话历史</button>
+  <button data-page="live">⌨ 实时监控</button>
 </nav>
 <main id="main">
   <div class="cards" id="cards"></div>
@@ -91,41 +103,6 @@ const statusTag = (s, migratedTo) => {
   return `<span class="tag ${c}">${esc(label)}</span>`;
 };
 
-async function showSkillInfo(name) {
-  const info = await api("/api/skill-info?name=" + encodeURIComponent(name));
-  if (!info) return toast(`未找到 ${name} 的中文说明`);
-  const overlay = document.getElementById("skill-modal");
-  if (!overlay) {
-    const div = document.createElement("div");
-    div.id = "skill-modal";
-    div.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;z-index:998";
-    document.body.appendChild(div);
-  }
-  document.getElementById("skill-modal").innerHTML = `<div style="background:var(--card);border:1px solid var(--line);border-radius:12px;padding:24px;max-width:520px;width:90%">
-    <h2>📌 ${esc(info.cnName)} <span class="muted" style="font-size:14px">${esc(info.name)}</span></h2>
-    <p class="muted" style="margin:8px 0">分类: ${esc(info.category)}</p>
-    <p style="margin:10px 0"><b>说明:</b> ${esc(info.oneLiner)}</p>
-    <p style="margin:10px 0"><b>用法:</b> ${esc(info.usage)}</p>
-    <button class="op" style="margin-top:12px;padding:6px 14px" onclick="document.getElementById('skill-modal').remove()">关闭</button>
-  </div>`;
-}
-
-async function showStory(id) {
-  document.getElementById("tab-story").classList.add("active-tab");
-  document.getElementById("tab-tree").classList.remove("active-tab");
-  const d = await api("/api/sessions/" + encodeURIComponent(id) + "/story");
-  const story = d.story || [];
-  const html = story.map((n) => {
-    if (n.kind === "thinking") {
-      return `<div style="margin:8px 0;padding:8px 12px;border-left:3px solid var(--yellow);background:#1b1f27;border-radius:6px"><div class="muted" style="font-size:11px">💭 思考</div><div style="font-size:13px;line-height:1.6;color:#d8c48a">${esc(n.detail)}</div></div>`;
-    }
-    const kids = (n.children || []).map((c) => `    <div style="color:var(--muted);font-size:12px">└─ ${esc(c.label)} ${esc(c.toolInput||"")}</div>`).join("");
-    const out = n.toolOutput ? `<div class="muted" style="font-size:11px;margin-left:16px">↩ ${esc(n.toolOutput)}</div>` : "";
-    return `<div style="margin:4px 0"><span style="color:var(--accent)">🛠 ${esc(n.label)}</span> ${esc(n.toolInput||"")}${kids}${out}</div>`;
-  }).join("");
-  document.getElementById("session-view").innerHTML = `<div style="max-height:70vh;overflow:auto">${html || "<p class='muted'>无轨迹数据</p>"}</div>`;
-}
-
 function showTree(id) {
   document.getElementById("tab-story").classList.remove("active-tab");
   document.getElementById("tab-tree").classList.add("active-tab");
@@ -134,7 +111,68 @@ function showTree(id) {
 
 const cachedSessionTree = {};
 
-const pages = { dash: loadDash, skills: loadSkills, sessions: loadSessionsPage };
+var _view2 = ""; // live 页轮询视图
+var livePaused = false;
+var liveLines = [];
+const pages = { dash: loadDash, skills: loadSkills, sessions: loadSessionsPage, live: loadLivePage };
+
+async function loadLivePage() {
+  _view2 = "live";
+  var liveIcon = livePaused ? "▶ 继续" : "⏸ 暂停";
+  $("#content").innerHTML =
+    '<div class="panel" style="padding:10px 14px">' +
+      '<div class="term-titlebar">' +
+        '<span class="term-dot" style="background:#f85149"></span><span class="term-dot" style="background:#d29922"></span><span class="term-dot" style="background:#3fb950"></span>' +
+        '<span style="color:var(--muted);font-size:12px;margin-left:6px">harness-manager — agent 实时观测</span>' +
+        '<button class="op" id="live-toggle" onclick="toggleLivePause()" style="margin-left:auto">' + liveIcon + "</button>" +
+        '<button class="op" onclick="document.getElementById(\'term-body\').innerHTML=\'\';liveLines=[]">清屏</button>' +
+        '<span class="muted" style="font-size:11px">skills 触发也会显示 · 每2s刷新' + (livePaused ? " · 已暂停" : "") + "</span>" +
+      "</div>" +
+      '<div class="term" id="term-body"><div class="term-line term-sys">[harness-manager] 等待 agent 事件… <span class="term-cursor"></span></div></div>' +
+    "</div>";
+  pollLive();
+}
+
+function toggleLivePause() {
+  livePaused = !livePaused;
+  document.getElementById("live-toggle").textContent = livePaused ? "▶ 继续" : "⏸ 暂停";
+}
+
+async function pollLive() {
+  if (_view2 !== "live") return;
+  if (!livePaused) {
+    try {
+      var snap = await api("/api/live");
+      var body = document.getElementById("term-body");
+      if (body && snap && snap.recent) {
+        // 只追加新事件(按 ts+type 去重)
+        var seenKey = function(e){ return e.ts + "|" + e.type + "|" + (e.toolName||"") + "|" + ((e.thinking||e.text||e.prompt||"")).length; };
+        if (!window._liveSeen) window._liveSeen = new Set();
+        var fresh = snap.recent.slice().reverse().filter(function(e){ return !window._liveSeen.has(seenKey(e)); });
+        for (var i = 0; i < fresh.length; i++) {
+          var e = fresh[i]; window._liveSeen.add(seenKey(e));
+          var t = (e.ts || "").slice(11, 19);
+          var line = "";
+          if (e.type === "session_start") line = '<span class="term-ts">[' + t + "]</span> <span class='term-sys'>▶ 会话开始</span> " + esc(e.cwd || "");
+          else if (e.type === "session_shutdown") line = '<span class="term-ts">[' + t + "]</span> <span class='term-sys'>■ 会话结束</span>";
+          else if (e.type === "skill_trigger") line = '<span class="term-ts">[' + t + "]</span> <span class='term-sys'>⚡ 技能触发:</span> " + esc((e.skills||[]).join(", ")) + ' <span class="muted">@ ' + esc((e.cwd||"").slice(-30)) + "</span>";
+          else if (e.type === "compaction") line = '<span class="term-ts">[' + t + "]</span> <span class='term-warn'>🗜 上下文压缩</span> (" + esc(e.reason||"auto") + ")";
+          else if (e.type === "model_change") line = '<span class="term-ts">[' + t + "]</span> <span class='term-sys'>⚙ 模型切换</span> " + esc(e.model || "");
+          else if (e.type === "tool_call") line = '<span class="term-ts">[' + t + "]</span> <span class='term-tool'>$ " + esc(e.toolName) + "</span> " + esc(JSON.stringify(e.input || "").slice(0, 110));
+          else if (e.type === "assistant_message") {
+            var th = (e.thinking || "").replace(/\s+/g, " ").trim();
+            if (th) line = '<span class="term-ts">[' + t + "]</span> <span class='term-think'>💭 " + esc(th.slice(0, 160)) + "</span>";
+            var tx = (e.text || "").replace(/\s+/g, " ").trim();
+            if (tx) body.insertAdjacentHTML("beforeend", '<div class="term-line"><span class="term-ts">[' + t + "]</span> 🗣 " + esc(tx.slice(0, 160)) + "</div>");
+          }
+          if (line) body.insertAdjacentHTML("beforeend", '<div class="term-line">' + line + "</div>");
+        }
+        if (fresh.length) body.scrollTop = body.scrollHeight;
+      }
+    } catch (err) { /* 忽略单次失败 */ }
+  }
+  setTimeout(function(){ if (_view2 === "live") pollLive(); }, 2000);
+}
 
 /* ========== 仪表盘(纯量化指标) ========== */
 async function loadDash() {
@@ -179,7 +217,7 @@ async function loadSkills() {
   const q = (document.getElementById("skill-q")?.value || "").toLowerCase();
   let list = d.skills || [];
   if (catFilter !== "all") list = list.filter((x) => x.category === catFilter);
-  if (q) list = list.filter((x) => (x.name + " " + (x.cnName||"") + " " + (x.oneLiner||"")).toLowerCase().includes(q));
+  if (q) list = list.filter((x) => (x.name + " " + (x.cnName||"") + " " + (x.what||"") + " " + (x.outcome||"")).toLowerCase().includes(q));
   const cats = [...new Set((d.skills||[]).map((x) => x.category))].sort();
   const opts = '<option value="all">全部分类</option>' + cats.map((c)=>'<option value="' + esc(c) + '">' + esc(c) + "</option>").join("");
   const rows = list.map((x) =>
@@ -192,7 +230,7 @@ async function loadSkills() {
     "<td>" + (x.enabled ? '<span class="tag green">启用</span>' : '<span class="tag red">禁用</span>') + "</td>" +
     "<td>" + (x.triggerCount ? "<b>"+x.triggerCount+"</b>" : '<span class="muted">0</span>') + "</td>" +
     "<td>" + (x.healthScore!=null ? (x.healthLevel==="healthy"?"🟢":x.healthLevel==="attention"?"🟡":"🔴")+" "+x.healthScore : "—") + "</td>" +
-    '<td class="muted">' + esc((x.oneLiner||"").slice(0,40)) + "</td>" +
+    '<td class="muted">' + esc((x.what||"").slice(0,40)) + "</td>" +
     "<td>" +
       '<button class="op" title="'+(x.enabled?"从 agent 上下文移除":"恢复加载")+'" onclick="toggleSkill(\'' + esc(x.name) + "'," + !x.enabled + ')">' + (x.enabled?"禁用":"启用") + "</button>" +
       '<button class="op" onclick="showSkillCard(\'' + esc(x.name) + '\')">详情</button>' +
@@ -229,8 +267,9 @@ async function showSkillCard(name) {
     '<div style="background:var(--card);border:1px solid var(--line);border-radius:12px;padding:22px;max-width:560px;width:92%">' +
     '<h2>📌 ' + esc(d.cnName||d.name) + ' <span class="muted" style="font-size:13px;font-weight:normal">' + esc(d.name) + "</span></h2>" +
     '<p class="muted" style="margin:6px 0">' + esc(d.categoryIcon||"") + " " + esc(d.category||"-") + " · " + esc(d.source) + ":" + esc(d.scope) + " · 触发 " + (d.triggerCount??0) + " 次" + (d.healthScore!=null?(" · 健康 "+d.healthScore):"") + "</p>" +
-    '<p style="margin:10px 0"><b>是什么:</b> ' + esc(d.oneLiner||"(无)") + "</p>" +
-    '<p style="margin:10px 0"><b>怎么用:</b> ' + esc(d.usageHint||d.description||"(无)") + "</p>" +
+    '<p style="margin:10px 0"><b>① 是做什么的:</b> ' + esc(d.what||"(无)") + "</p>" +
+    '<p style="margin:10px 0"><b>② 何时用:</b> ' + esc(d.when||d.description||"(无)") + "</p>" +
+    '<p style="margin:10px 0"><b>③ 达成什么:</b> ' + esc(d.outcome||"(无)") + "</p>" +
     ((d.issues&&d.issues.length)?'<p style="margin:10px 0;color:var(--yellow)"><b>健康提示:</b> ' + esc(d.issues.join("; ")) + "</p>":"") +
     '<div style="display:flex;gap:8px;margin-top:14px">' +
       '<button class="op" onclick="toggleSkill(\'' + esc(name) + "'," + !d.enabled + ');document.getElementById(\'skill-modal\').remove()">' + (d.enabled?"禁用此技能":"启用此技能") + "</button>" +
@@ -246,14 +285,7 @@ async function loadSessionsPage() {
   var pair = await Promise.all([api("/api/hub"), api("/api/metrics")]);
   var hub = pair[0], ms = pair[1];
   var metricsById = new Map((ms||[]).map(function(m){return [m.sessionId,m];}));
-  var live = hub.live || {};
-  var liveEvts = (live.recent||[]).slice(0,12).map(function(e){
-    var t=(e.ts||"").slice(11,19);
-    if(e.type==="tool_call") return '<div><span class="muted">'+t+'</span> 🛠 <b>'+esc(e.toolName)+'</b> <span class="muted">'+esc(JSON.stringify(e.input||"").slice(0,50))+"</span></div>";
-    if(e.type==="assistant_message") return '<div style="color:#d8c48a;font-size:12px"><span class="muted">'+t+'</span> 💭 '+esc(((e.thinking||e.text||"")+"").replace(/\s+/g," ").slice(0,80))+"</div>";
-    return "";
-  }).filter(Boolean).join("");
-  var rows = (hub.sessions||[]).slice(0,60).map(function(s){
+var rows = (hub.sessions||[]).slice(0,60).map(function(s){
     var m = metricsById.get(s.id);
     var oc = s.outcome;
     var grade = m?'<span class="tag '+(m.reliability.grade==="A"?"green":m.reliability.grade==="B"?"yellow":"red")+'">'+m.reliability.grade+"</span>":"—";
@@ -269,9 +301,6 @@ async function loadSessionsPage() {
     "</tr>";
   }).join("");
   $("#content").innerHTML =
-    '<div class="panel"><h2>⚡ 正在发生 (实时观测思考与推理链)</h2>' +
-      '<div id="live-stream" style="max-height:180px;overflow:auto;font-size:12px">'+(liveEvts || '<span class="muted">暂无实时事件。若未生效: 重启 pi 会话让 extension 加载。</span>')+"</div>" +
-    "</div>" +
     '<div class="panel"><h2>会话列表 (点击进入审查回放)</h2>' +
       '<table><thead><tr><th>成效</th><th>id</th><th>harness</th><th>日期</th><th>消息/工具/思考</th><th>turns</th><th>可靠</th><th>项目</th></tr></thead><tbody>'+rows+"</tbody></table></div>";
   clearTimeout(sessTimer);
@@ -348,6 +377,7 @@ $("#nav").addEventListener("click", (e) => {
   const b = e.target.closest("button"); if (!b) return;
   document.querySelectorAll("#nav button").forEach((x) => x.classList.remove("active"));
   b.classList.add("active");
+  if (b.dataset.page !== "live") _view2 = ""; // 离开实时页则停轮询
   pages[b.dataset.page]();
 });
 
