@@ -66,6 +66,7 @@
   <button data-page="skills">🧠 技能中心</button>
   <button data-page="sessions">💬 会话历史</button>
   <button data-page="live">⌨ 实时监控</button>
+  <button onclick="rescanNow()" id="rescan-btn" title="立即重新扫描新会话/新技能" style="margin-left:auto;color:var(--muted)">🔄 刷新数据</button>
 </nav>
 <main id="main">
   <div class="cards" id="cards"></div>
@@ -380,6 +381,18 @@ $("#nav").addEventListener("click", (e) => {
   if (b.dataset.page !== "live") _view2 = ""; // 离开实时页则停轮询
   pages[b.dataset.page]();
 });
+
+async function rescanNow() {
+  const btn = document.getElementById("rescan-btn");
+  btn.textContent = "⟳ 扫描中…";
+  const r = await fetch("/api/rescan", { method: "POST" }).then((x) => x.json()).catch(() => null);
+  btn.textContent = "🔄 刷新数据";
+  if (r && r.ok) toast("✓ 已重扫: " + r.sessions + " 会话 / " + r.resources + " 资源(重新载入当前页)");
+  else { toast("扫描失败"); return; }
+  // 重载当前页展示新数据
+  const active = document.querySelector("nav button.active");
+  if (active && pages[active.dataset.page]) pages[active.dataset.page]();
+}
 
 loadDash(); _view = "dash";
 </script>

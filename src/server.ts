@@ -332,6 +332,12 @@ export function startServer(): void {
           setSkillEnabled(p.name, p.enabled === true);
           return json(res, { ok: true, name: p.name, enabled: p.enabled === true, disabledList: getDisabledSkills() });
         }
+        // 手动刷新: 立即重扫(新会话/新技能立即可见)
+        if (path === "/api/rescan" && req.method === "POST") {
+          cached = await scan();
+          saveCache(cached);
+          return json(res, { ok: true, sessions: cached.sessions.length, resources: cached.resources.length });
+        }
         // 会话执行轨迹 + 思考
         const sm = path.match(/^\/api\/sessions\/(.+)\/story$/);
         if (sm) {
@@ -365,7 +371,23 @@ export function startServer(): void {
     }
   });
 
+  // 启动即全量重扫(不信任旧缓存, 确保最新会话可见)
+  scan().then((r) => {
+    cached = r;
+    saveCache(r);
+    console.log(`\u2713 \u542f\u52a8\u91cd\u626b: ${r.sessions.length} \u4f1a\u8bdd / ${r.resources.length} \u8d44\u6e90`);
+  }).catch(() => {});
+
+  // 定时自动扫描(config.scanIntervalMs, 默认60s): 新会话/新技能自动入库
+  setInterval(async () => {
+    try {
+      const r = await scan();
+      cached = r;
+      saveCache(r);
+    } catch { /* 静默 */ }
+  }, Math.max(30_000, cfg.scanIntervalMs));
+
   server.listen(cfg.port, () => {
-    console.log(`harness-manager Web 控制面: http://localhost:${cfg.port}`);
+    console.log(`harness-manager Web 控制面: http://localhost:${cfg.port} (每 ${Math.round(cfg.scanIntervalMs / 1000)}s 自动扫描)`);
   });
 }
