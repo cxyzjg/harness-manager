@@ -40,6 +40,26 @@ export default function (pi: ExtensionAPI): void {
     logEvent("session_shutdown", {});
   });
 
+  // 上下文压缩事件(P3: 上下文管理可见)
+  pi.on("session_before_compact", async (event) => {
+    const e = event as { reason?: string; entryCount?: number; model?: string };
+    logEvent("compaction", {
+      reason: e.reason ?? "auto",
+      entries: e.entryCount ?? 0,
+    });
+    // 不取消压缩, 仅观测
+    return undefined;
+  });
+
+  // 模型切换(P3: state 可见)
+  pi.on("session_info_changed", async (event) => {
+    const e = event as { model?: string; provider?: string; thinkingLevel?: string };
+    if (e.model || e.provider) {
+      logEvent("model_change", { model: e.model ?? "", provider: e.provider ?? "", thinkingLevel: e.thinkingLevel ?? "" });
+    }
+    return undefined;
+  });
+
   // 工具调用（核心：实时监控）
   pi.on("tool_call", async (event) => {
     const e = event as {

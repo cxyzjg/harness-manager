@@ -162,7 +162,8 @@ pi、Claude Code、Codex 等 AI agent 工具的 skills、工具、扩展、会�
 - [x] **技能单源化迁移**：45 个技能(agents 38 + claude 7)迁入单源，同名去重，原目录删除，备份可回滚；单源内技能标记 single-source
 - [x] **Step 3 工具实时监控**：`extensions/realtime.ts` pi extension(订阅 tool_call/session 事件写日志) + `src/monitor/realtime.ts`(滚动窗口统计) + `hm live` + Web 实时面板(3s自动刷新)；41 个单元测试
 - [x] **深度升级（用户4点期望）**：①技能注册表(registry)统一所有技能源+冲突处理(update/keep/ignore) ②技能说明/启停/状态管理 ③会话中心(hub)融合实时+会话+成效+轨迹 ④技能触发追踪(extension before_agent_start 记录每回合加载技能) + hm usage 统计；44 个单元测试
-- [ ] 全部里程碑完成 — 待整体验收
+- [x] **Runtime 观测与审查平台（P1/P2/P3）**：P1 turn粒度审查回放(hm turns: 用户->思考->工具->回复+上下文构成快照, 'agent所见反馈用户') ②P2 量化指标(hm metrics: 错误率/重试率/空转率/工具密度/思考深度/上下文增长/可靠性ABCD等级) ③P3 Runtime页(实时状态+指标表格+审查回放, 5s刷新) ④extension 扩展 compaction/model_change 事件；47 个单元测试
+- [ ] 全部里程碑完成 - 待整体验收
 
 ## 8. 待确认
 

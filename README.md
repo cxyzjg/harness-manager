@@ -49,6 +49,8 @@ npm run hm -- suggest <意图>  # 按场景推荐技能
 npm run hm -- sessions    # 列出会话
 npm run hm -- trace <id>  # 显示某会话调用链树
 npm run hm -- story <id>  # 执行轨迹+思考过程(完整追溯)
+npm run hm -- turns <id>  # turn粒度审查回放(用户->思考->工具->回复+上下文构成)
+npm run hm -- metrics [<id>]  # 性能+可靠性量化(错误率/重试/工具密度/等级)
 npm run hm -- slowest     # 最慢调用 Top10
 npm run hm -- token       # token 聚合
 npm run hm -- dedupe      # 去重候选（同名 + 功能重叠）

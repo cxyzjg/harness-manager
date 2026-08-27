@@ -59,6 +59,7 @@
   <button data-page="stats">统计</button>
   <button data-page="health">技能健康</button>
   <button data-page="usage">技能触发</button>
+  <button data-page="runtime">Runtime</button>
 </nav>
 <main id="main">
   <div class="cards" id="cards"></div>
@@ -382,7 +383,59 @@ async function loadStats() {
     </div>`;
 }
 
-const pages = { dashboard: loadDashboard, resources: loadResources, hub: loadHub, dedupe: loadDedupe, token: loadToken, stats: loadStats, health: loadHealth, usage: loadUsage };
+const pages = { dashboard: loadDashboard, resources: loadResources, hub: loadHub, dedupe: loadDedupe, token: loadToken, stats: loadStats, health: loadHealth, usage: loadUsage, runtime: loadRuntime };
+
+async function loadRuntime() {
+  const [ms, live] = await Promise.all([api("/api/metrics"), api("/api/live")]);
+  const list = ms || [];
+  const grades = { A: 0, B: 0, C: 0, D: 0 };
+  list.forEach((m) => grades[m.reliability?.grade] = (grades[m.reliability?.grade] || 0) + 1);
+  const cards = [
+    { n: list.length, l: "会话已量化" },
+    { n: `A:${grades.A} B:${grades.B}`, l: "可靠性分布 C:" + grades.C + " D:" + grades.D },
+    { n: live?.window1h?.toolCalls ?? 0, l: "⚡ 最近1h调用" },
+    { n: (live?.activeSessions || []).length, l: "活跃会话" },
+  ].map((c) => `<div class="card"><div class="num">${c.n}</div><div class="label">${c.l}</div></div>`).join("");
+  const rows = list.slice().sort((a, b) => b.performance.turns - a.performance.turns).map((m) => `<tr>
+    <td><span class="tag ${m.reliability.grade === 'A' ? 'green' : m.reliability.grade === 'B' ? 'yellow' : 'red'}">${m.reliability.grade}</span></td>
+    <td><a href="#" onclick="showTurns('${esc(m.sessionId)}');return false;" class="mono">${esc(m.sessionId.slice(0, 20))}</a></td>
+    <td>${esc(m.harness)}</td>
+    <td>${m.performance.turns}</td>
+    <td>${m.performance.toolsPerTurn}</td>
+    <td>${m.performance.thinkingPerTurn}</td>
+    <td>${fmt(m.performance.tokensTotal)}</td>
+    <td>${m.performance.contextGrowth}msg</td>
+    <td>${(m.reliability.errorRate * 100).toFixed(1)}%</td>
+    <td>${(m.reliability.retryRate * 100).toFixed(1)}%</td>
+  </tr>`).join("");
+  $("#content").innerHTML = `
+    <div class="cards">${cards}</div>
+    <div class="panel"><h2>⚡ 实时状态</h2>
+      <p>${live?.active ? '监控中 · ' + esc(live.lastEvent?.type ?? "") : '未启用(需 pi extension)'} · 会话: ${esc((live?.activeSessions || [])[0] || "-")}</p></div>
+    <div class="panel"><h2>📊 性能与可靠性量化 (点击会话查看 turn 审查回放)</h2>
+      <table><thead><tr><th>等级</th><th>会话</th><th>harness</th><th>turns</th><th>工具/t</th><th>思考/t</th><th>token</th><th>上下文增长</th><th>错误率</th><th>重试率</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+  setTimeout(() => { if (document.querySelector("nav button.active")?.dataset.page === "runtime") loadRuntime(); }, 5000);
+}
+
+async function showTurns(id) {
+  const tv = await api("/api/turns?id=" + encodeURIComponent(id));
+  if (!tv || tv.error) return toast("无法构建 turn 视图");
+  const html = (tv.turns || []).map((t) => {
+    const think = (t.thinking || []).map((th) => `<div style="color:#d8c48a;font-size:12px;line-height:1.5;margin:2px 0">💭 ${esc((th.text || "").slice(0, 150))}</div>`).join("");
+    const tools = (t.tools || []).map((tc) => `<div style="color:var(--accent);font-size:12px">🛠 ${esc(tc.name)} <span class="muted">${esc(tc.input || "")}</span></div>`).join("");
+    const out = (t.textOutput || [])[0] ? `<div class="muted" style="font-size:12px;margin:3px 0">↩ ${esc((t.textOutput[0] || "").slice(0, 120))}</div>` : "";
+    return `<div class="panel" style="margin:8px 0;padding:10px 14px">
+      <div><b>[turn ${t.index}]</b> <span class="muted">${esc((t.ts || "").slice(11, 19))}</span> 用户: ${esc((t.userInput || "").slice(0, 80))}
+        <span class="tag" style="margin-left:8px">上下文: ${t.contextAtTurn.messages}msg/${t.contextAtTurn.thinking}💭/${t.contextAtTurn.tools}🛠</span></div>
+      ${think}${tools}${out}
+    </div>`;
+  }).join("");
+  $("#content").innerHTML = `
+    <button onclick="loadRuntime()" style="background:none;border:none;color:var(--accent);cursor:pointer;margin-bottom:10px">← 返回</button>
+    <div class="panel"><h2>🧾 会话审查回放: ${esc(tv.sessionId.slice(0, 30))} (${tv.totalTurns} turns / ${tv.totals.tools} 工具)</h2>
+      <p class="muted">每 turn: 用户输入 -> 思考(为什么) -> 工具(做什么) -> 回复 -> agent 当时看到的上下文构成</p></div>
+    <div style="max-height:75vh;overflow:auto">${html}</div>`;
+}
 
 async function loadHub() {
   const h = await api("/api/hub");

@@ -14,6 +14,9 @@
  */
 import { scan } from "./orchestrator.js";
 import { loadCache, saveCache } from "./storage.js";
+import { readdirSync, statSync } from "node:fs";
+import { join } from "node:path";
+import { homedir } from "node:os";
 import { buildCallTree, renderTree, slowestCalls, toolFrequency } from "./analysis/calltree.js";
 import { detectDupes } from "./analysis/dedupe.js";
 import { filterSessions, aggregateTokens, buildTimeline, contextStats, toolStats } from "./analysis/stats.js";
@@ -149,6 +152,68 @@ async function main(): Promise<void> {
       console.log(`按意图 "${args.join(" ")}" 推荐 (${cat}):`);
       list.forEach((i) => console.log(`  • ${i.name} — ${i.cnName}: ${i.oneLiner}`));
       if (!matchedCat) console.log("  (未能识别场景，默认系统工具，可更具体描述)");
+      break;
+    }
+    case "turns": {
+      // hm turns <id> - turn 粒度推理轨迹(会话审查回放)
+      const { buildTurnViewFromPiFile, buildTurnViewFromCcFile, findPiSessionFile, findCcSessionFile } = await import("./monitor/turnView.js");
+      const id = args[0];
+      if (!id) return console.log("用法: hm turns <session-id>");
+      const r = await ensureScan();
+      const s = r.sessions.find((x) => x.id.startsWith(id));
+      if (!s) return console.log(`未找到会话 ${id}`);
+      // 定位会话文件: pi 按 id 找文件, cc 用 projects
+      const tv = s.harness === "pi"
+        ? buildTurnViewFromPiFile(findPiSessionFile(s.id), s.id)
+        : buildTurnViewFromCcFile(findCcSessionFile(s.id), s.id);
+      if (!tv) return console.log("无法构建 turn 视图");
+      if (useJson) return out(tv);
+      console.log(`会话 ${s.id} turn 轨迹 (${tv.totalTurns} turns, ${tv.totals.tools} 工具, ${tv.totals.thinking} 思考):\n`);
+      for (const t of tv.turns) {
+        const icon = t.tools.length ? "🛠" : t.thinking.length ? "💭" : "💬";
+        console.log(`${icon} [turn ${t.index}] ${(t.ts ?? "").slice(11, 19)} 用户: ${t.userInput.slice(0, 70)}`);
+        for (const th of t.thinking.slice(0, 2)) console.log(`    💭 ${(th.text || "").replace(/\s+/g, " ").slice(0, 90)}…`);
+        for (const tc of t.tools.slice(0, 5)) console.log(`    🛠 ${tc.name} ${tc.input ?? ""}`);
+        if (t.tools.length > 5) console.log(`    … 共${t.tools.length}个工具`);
+        const out1 = (t.textOutput[0] ?? "").replace(/\s+/g, " ").slice(0, 70);
+        if (out1) console.log(`    ↩ ${out1}`);
+        console.log(`    (上下文: ${t.contextAtTurn.messages}消息/${t.contextAtTurn.thinking}思考/${t.contextAtTurn.tools}工具)`);
+      }
+      break;
+    }
+    case "metrics": {
+      // hm metrics [<id>] - 性能+可靠性量化指标
+      const { computeMetrics } = await import("./monitor/metrics.js");
+      const { buildTurnViewFromPiFile, buildTurnViewFromCcFile, findPiSessionFile, findCcSessionFile } = await import("./monitor/turnView.js");
+      const r = await ensureScan();
+      const id = args[0];
+      const targets = id ? r.sessions.filter((s) => s.id.startsWith(id)) : r.sessions;
+      if (!targets.length) return console.log(`未找到会话 ${id}`);
+      const results = targets.flatMap((s) => {
+        const tv = s.harness === "pi"
+          ? buildTurnViewFromPiFile(findPiSessionFile(s.id), s.id)
+          : buildTurnViewFromCcFile(findCcSessionFile(s.id), s.id);
+        return tv ? [computeMetrics(tv, s)] : [];
+      });
+      if (useJson) return out(results);
+      if (results.length === 1) {
+        const m = results[0];
+        console.log(`📊 会话量化指标: ${m.sessionId.slice(0, 30)}`);
+        console.log(`\n[性能]`);
+        console.log(`  turns=${m.performance.turns} 工具/turn=${m.performance.toolsPerTurn} 思考/turn=${m.performance.thinkingPerTurn}`);
+        console.log(`  token=${m.performance.tokensTotal} (每turn ${m.performance.tokensPerTurn}) 上下文增长=${m.performance.contextGrowth}msg 压缩=${m.performance.compactions}次`);
+        console.log(`  工具多样性=${m.performance.toolDiversity}`);
+        console.log(`\n[可靠性] 等级 ${m.reliability.grade}`);
+        console.log(`  错误率=${(m.reliability.errorRate * 100).toFixed(1)}% (${m.reliability.errorCalls}/${m.reliability.totalCalls}) 重试率=${(m.reliability.retryRate * 100).toFixed(1)}% 空转率=${(m.reliability.emptyTurnRate * 100).toFixed(1)}%`);
+        m.reliability.signals.forEach((s) => console.log(`  • ${s}`));
+      } else {
+        console.log(`📊 全部会话量化指标 (${results.length}):`);
+        for (const m of results) {
+          console.log(`  [${m.reliability.grade}] ${String(m.performance.turns).padStart(3)}turns ${String(m.performance.toolsPerTurn).padStart(4)}t/p ${m.harness.padEnd(6)} ${m.sessionId.slice(0, 22)}`);
+        }
+        const avg = (k: "errorRate" | "retryRate") => (results.reduce((a, m) => a + m.reliability[k], 0) / results.length * 100).toFixed(1);
+        console.log(`\n  平均错误率 ${avg("errorRate")}% 平均重试率 ${avg("retryRate")}%`);
+      }
       break;
     }
     case "usage": {
@@ -524,6 +589,8 @@ function helpText(): string {
   hm sessions          列出会话
   hm trace <id>        显示会话调用链树
   hm story <id>        执行轨迹 + 思考过程(完整追溯)
+  hm turns <id>        turn粒度推理轨迹(会话审查回放)
+  hm metrics [<id>]    性能+可靠性量化指标(错误率/重试/效率/等级)
   hm slowest           最慢调用 Top10
   hm token             token 聚合
   hm dedupe            去重候选

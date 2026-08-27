@@ -120,6 +120,31 @@ const routes: Record<string, (url: URL) => Promise<unknown> | unknown> = {
     cached
       ? import("./monitor/sessionHub.js").then(({ buildSessionHub }) => buildSessionHub(cached!.sessions))
       : null,
+  "/api/turns": (url) => {
+    const id = url.searchParams.get("id") ?? "";
+    if (!id || !cached) return null;
+    const s = cached!.sessions.find((x) => x.id.startsWith(id));
+    if (!s) return null;
+    return import("./monitor/turnView.js").then(({ buildTurnViewFromPiFile, buildTurnViewFromCcFile, findPiSessionFile, findCcSessionFile }) =>
+      s.harness === "pi"
+        ? buildTurnViewFromPiFile(findPiSessionFile(s.id), s.id)
+        : buildTurnViewFromCcFile(findCcSessionFile(s.id), s.id)
+    );
+  },
+  "/api/metrics": () => {
+    if (!cached) return [];
+    return Promise.all([
+      import("./monitor/metrics.js"),
+      import("./monitor/turnView.js"),
+    ]).then(([{ computeMetrics }, tv]) =>
+      cached!.sessions.flatMap((s) => {
+        const view = s.harness === "pi"
+          ? tv.buildTurnViewFromPiFile(tv.findPiSessionFile(s.id), s.id)
+          : tv.buildTurnViewFromCcFile(tv.findCcSessionFile(s.id), s.id);
+        return view ? [computeMetrics(view, s)] : [];
+      })
+    );
+  },
   "/api/usage": () => import("./monitor/usage.js").then(({ skillUsageStats }) => skillUsageStats()),
   "/api/registry": () =>
     import("./monitor/registry.js").then(({ loadRegistry }) => loadRegistry()),
