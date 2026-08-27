@@ -9,7 +9,7 @@
  * 或参考 pi 文档将包含本文件的包加入 settings.packages。
  */
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { appendFileSync, mkdirSync } from "node:fs";
+import { appendFileSync, mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 
@@ -78,10 +78,11 @@ export default function (pi: ExtensionAPI): void {
     return undefined;
   });
 
-  // 技能触发追踪：用户每提交一个回合，记录当前已加载的技能（触发记录）
+  // 技能触发追踪 + 真启停过滤: 用户每回合记录已加载技能, 并从系统提示移除禁用技能
   pi.on("before_agent_start", async (event) => {
     const e = event as {
       prompt?: string;
+      systemPrompt?: string;
       systemPromptOptions?: {
         skills?: { name?: string }[];
         cwd?: string;
@@ -97,6 +98,37 @@ export default function (pi: ExtensionAPI): void {
         prompt,
       });
     }
+
+    // 真启停: 从系统提示中剔除禁用技能的 <skill> 条目
+    let disabled: string[] = [];
+    try { disabled = JSON.parse(readFileSync(join(homedir(), ".harness-manager", "disabled-skills.json"), "utf-8")).skills ?? []; } catch {}
+    let sp = e.systemPrompt;
+    if (disabled.length && sp && sp.includes("<available_skills>")) {
+      for (const name of disabled) {
+        // 匹配 <skill ...name="xxx"...</skill> 单条块
+        const re = new RegExp(`\\n?<skill[^>]*name="${name}"[\\s\\S]*?</skill>`, "gi");
+        sp = sp.replace(re, "");
+      }
+    }
+    return sp !== e.systemPrompt ? { systemPrompt: sp } : undefined;
+  });
+
+  // 实时思考/回复流(P5: 开启会话实时观测 agent 思考与推理链)
+  pi.on("message_end", async (event) => {
+    const e = event as {
+      message?: { role?: string; content?: { type?: string; thinking?: string; text?: string; name?: string; arguments?: unknown }[] };
+    };
+    const msg = e.message;
+    if (!msg || msg.role !== "assistant") return undefined;
+    const content = Array.isArray(msg.content) ? msg.content : [];
+    const thinking = content.filter((c) => c.type === "thinking").map((c) => c.thinking ?? "").join("\n");
+    const text = content.filter((c) => c.type === "text").map((c) => c.text ?? "").join("\n");
+    const tools = content.filter((c) => c.type === "toolCall").map((c) => ({ name: c.name, input: (c.arguments ?? c.input) }));
+    logEvent("assistant_message", {
+      thinking: thinking.slice(0, 4000),
+      text: text.slice(0, 2000),
+      tools,
+    });
     return undefined;
   });
 }

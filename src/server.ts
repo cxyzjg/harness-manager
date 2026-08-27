@@ -73,6 +73,83 @@ function sessionDetail(id: string) {
 
 const routes: Record<string, (url: URL) => Promise<unknown> | unknown> = {
   "/api/dashboard": () => dashboard(),
+  "/api/dash": async () => {
+    // 仪表盘: 纯量化指标聚合
+    const [{ aggregateTokens }, { assessSkillHealth, healthSummary }, { skillUsageStats }] = await Promise.all([
+      import("./analysis/stats.js"),
+      import("./monitor/skillHealth.js"),
+      import("./monitor/usage.js"),
+    ]);
+    const mt = cached ? await import("./monitor/metrics.js") : null;
+    const tv = cached ? await import("./monitor/turnView.js") : null;
+    const resources = cached?.resources ?? [];
+    const sessions = cached?.sessions ?? [];
+    const health = assessSkillHealth(resources);
+    const tokens = aggregateTokens(sessions);
+    // 全会话可靠性汇总
+    let errSum = 0, retrySum = 0, grades = { A: 0, B: 0, C: 0, D: 0 };
+    if (mt && tv) {
+      for (const s of sessions) {
+        const view = s.harness === "pi"
+          ? tv.buildTurnViewFromPiFile(tv.findPiSessionFile(s.id), s.id)
+          : tv.buildTurnViewFromCcFile(tv.findCcSessionFile(s.id), s.id);
+        if (!view) continue;
+        const m2 = mt.computeMetrics(view, s);
+        errSum += m2.reliability.errorRate; retrySum += m2.reliability.retryRate;
+        grades[m2.reliability.grade]++;
+      }
+    }
+    const quantified = Object.values(grades).reduce((a, b) => a + b, 0);
+    const usage = skillUsageStats();
+    return {
+      resources: {
+        total: resources.length,
+        skills: (cached?.resources ?? []).filter((r) => r.kind === "skill" || r.kind === "project-skill").length,
+        bySource: countBy(resources, (r) => r.source),
+      },
+      skillsHealth: { summary: healthSummary(health) },
+      tokens: { total: tokens.total, input: tokens.totalInput, output: tokens.totalOutput,
+        byModel: Object.entries(tokens.byModel).map(([k, v]) => ({ model: k, ...v })).sort((a, b) => b.input - a.input).slice(0, 6),
+        byProject: Object.entries(tokens.byProject).map(([k, v]) => ({ project: k, ...v })).sort((a, b) => b.input - a.input).slice(0, 6) },
+      sessions: { total: sessions.length, tools: sessions.reduce((a, s) => a + s.tools.length, 0), messages: sessions.reduce((a, s) => a + s.messages, 0) },
+      reliability: { quantified, avgErrorRate: quantified ? +((errSum / quantified) * 100).toFixed(1) : 0,
+        avgRetryRate: quantified ? +((retrySum / quantified) * 100).toFixed(1) : 0, grades },
+      triggers: { total: usage.totalTriggers, top: Object.entries(usage.bySkill).sort((a, b) => b[1] - a[1]).slice(0, 8).map(([name, count]) => ({ name, count })) },
+    };
+  },
+  "/api/skills": async () => {
+    // 技能中心聚合: 资源+分类+说明+启停状态+触发统计+健康
+    const [{ skillInfo }, { getDisabledSkills }, { skillUsageStats }, { assessSkillHealth, healthSummary }] = await Promise.all([
+      import("./analysis/skillDescriptions.js"),
+      import("./core/skills/control.js"),
+      import("./monitor/usage.js"),
+      import("./monitor/skillHealth.js"),
+    ]);
+    const disabled = new Set(getDisabledSkills());
+    const usage = skillUsageStats();
+    const resources = cached?.resources ?? [];
+    const health = assessSkillHealth(resources);
+    const healthByName = new Map(health.map((h) => [h.resource.name, h]));
+    const skills = resources
+      .filter((r) => r.kind === "skill" || r.kind === "project-skill")
+      .map((r) => {
+        const cat = skillCategories.categoryOf(r.name);
+        return {
+          ...r,
+          category: cat,
+          categoryIcon: skillCategories.CATEGORY_ICON[cat],
+          cnName: skillInfo(r.name)?.cnName,
+          oneLiner: skillInfo(r.name)?.oneLiner,
+          usageHint: skillInfo(r.name)?.usage,
+          enabled: !disabled.has(r.name),
+          triggerCount: usage.bySkill[r.name] ?? 0,
+          healthScore: healthByName.get(r.name)?.score,
+          healthLevel: healthByName.get(r.name)?.level,
+          issues: healthByName.get(r.name)?.issues ?? [],
+        };
+      });
+    return { skills, summary: healthSummary(health), triggers: usage.totalTriggers, byProject: usage.byProject, recent: usage.recent.slice(0, 10) };
+  },
   "/api/resources": () =>
     (cached?.resources ?? []).map((r) => {
       if (r.kind === "skill" || r.kind === "project-skill") {
@@ -221,6 +298,39 @@ export function startServer(): void {
 
       if (path.startsWith("/api/")) {
         await ensureData();
+        // 会话审查聚合: 详情+成效+量化指标+turn回放 一体
+        const rm = path.match(/^\/api\/session-review\/(.+)$/);
+        if (rm) {
+          const id = decodeURIComponent(rm[1]);
+          const s = cached!.sessions.find((x) => x.id.startsWith(id));
+          if (!s) return json(res, { error: "not found" }, 404);
+          const tvmod = await import("./monitor/turnView.js");
+          const mt = await import("./monitor/metrics.js");
+          const ot = await import("./monitor/sessionOutcome.js");
+          const { buildCallTree } = await import("./analysis/calltree.js");
+          const { buildStory } = await import("./analysis/story.js");
+          const tv = s.harness === "pi"
+            ? tvmod.buildTurnViewFromPiFile(tvmod.findPiSessionFile(s.id), s.id)
+            : tvmod.buildTurnViewFromCcFile(tvmod.findCcSessionFile(s.id), s.id);
+          const outcome = ot.evaluateAll([s])[0] ?? null;
+          const metrics2 = tv ? mt.computeMetrics(tv, s) : null;
+          return json(res, {
+            id: s.id, harness: s.harness, cwd: s.cwd, startedAt: s.startedAt,
+            messages: s.messages, toolCount: s.tools.length, tokenUsage: s.tokenUsage ?? null,
+            outcome, metrics: metrics2,
+            turns: tv ? { total: tv.totalTurns, list: tv.turns } : null,
+            story: buildStory(s), tree: buildCallTree(s.tools),
+          });
+        }
+        // 技能真启停 toggle
+        if (path === "/api/skills/toggle" && req.method === "POST") {
+          let body = "";
+          for await (const chunk of req) body += chunk;
+          const p = JSON.parse(body) as { name: string; enabled: boolean };
+          const { setSkillEnabled, getDisabledSkills } = await import("./core/skills/control.js");
+          setSkillEnabled(p.name, p.enabled === true);
+          return json(res, { ok: true, name: p.name, enabled: p.enabled === true, disabledList: getDisabledSkills() });
+        }
         // 会话执行轨迹 + 思考
         const sm = path.match(/^\/api\/sessions\/(.+)\/story$/);
         if (sm) {

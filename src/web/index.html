@@ -51,15 +51,9 @@
   <span class="badge">跨 Agent 资源 / 会话 / 调用链 控制面</span>
 </header>
 <nav id="nav">
-  <button data-page="dashboard" class="active">仪表盘</button>
-  <button data-page="resources">资源</button>
-  <button data-page="hub">会话中心</button>
-  <button data-page="dedupe">去重候选</button>
-  <button data-page="token">Token 趋势</button>
-  <button data-page="stats">统计</button>
-  <button data-page="health">技能健康</button>
-  <button data-page="usage">技能触发</button>
-  <button data-page="runtime">Runtime</button>
+  <button data-page="dash" class="active">📊 仪表盘</button>
+  <button data-page="skills">🧠 技能中心</button>
+  <button data-page="sessions">💬 会话中心</button>
 </nav>
 <main id="main">
   <div class="cards" id="cards"></div>
@@ -383,7 +377,177 @@ async function loadStats() {
     </div>`;
 }
 
-const pages = { dashboard: loadDashboard, resources: loadResources, hub: loadHub, dedupe: loadDedupe, token: loadToken, stats: loadStats, health: loadHealth, usage: loadUsage, runtime: loadRuntime };
+const pages = { dash: loadDash, skills: loadSkills, sessions: loadSessionsPage };
+
+/* ========== 仪表盘(纯量化指标) ========== */
+async function loadDash() {
+  const d = await api("/api/dash");
+  const c1 = [
+    { n: d.resources.skills, l: "技能总数" },
+    { n: d.sessions.total, l: "会话数" },
+    { n: fmt(d.tokens.total), l: "token 总量" },
+    { n: fmt(d.sessions.tools), l: "工具调用" },
+    { n: d.triggers.total, l: "技能触发" },
+    { n: d.reliability.quantified, l: "已量化会话" },
+  ].map((x) => '<div class="card"><div class="num">' + x.n + '</div><div class="label">' + x.l + "</div></div>").join("");
+  const hSum = d.skillsHealth.summary?.byLevel || {};
+  const rel = d.reliability || {};
+  const topTrig = (d.triggers.top || []).map((t) => "<tr><td>" + esc(t.name) + '</td><td><b>' + t.count + "</b></td></tr>").join("");
+  const byModel = (d.tokens.byModel || []).map((m) => "<tr><td>" + esc(m.model) + "</td><td>" + fmt(m.input) + "</td><td>" + fmt(m.output) + "</td></tr>").join("");
+  const srcTags = Object.entries(d.resources.bySource || {}).map(([k,v])=>'<span class="tag" style="margin-right:6px">' + esc(k)+":"+v + "</span>").join("");
+  $("#content").innerHTML =
+    '<div class="cards">' + c1 + "</div>" +
+    '<div class="row">' +
+      '<div class="panel"><h2>可靠性量化</h2>' +
+        '<p>已量化 ' + rel.quantified + ' 会话 · 平均错误率 <b>' + rel.avgErrorRate + '%</b> · 平均重试率 <b>' + rel.avgRetryRate + '%</b></p>' +
+        '<p style="margin-top:6px"><span class="tag green">A:' + (rel.grades?.A||0) + '</span> <span class="tag yellow">B:' + (rel.grades?.B||0) + '</span> <span class="tag red">C:' + (rel.grades?.C||0) + " D:" + (rel.grades?.D||0) + "</span></p>" +
+      "</div>" +
+      '<div class="panel"><h2>技能健康</h2>' +
+        '<p>🟢 ' + (hSum.healthy||0) + " 健康 · 🟡 " + (hSum.attention||0) + " 需关注 · 🔴 " + (hSum.risk||0) + " 风险</p>" +
+        '<p class="muted" style="margin-top:6px">来源: ' + srcTags + "</p>" +
+      "</div>" +
+    "</div>" +
+    '<div class="row">' +
+      '<div class="panel"><h2>Token 按模型</h2><table><thead><tr><th>模型</th><th>in</th><th>out</th></tr></thead><tbody>' + byModel + "</tbody></table></div>" +
+      '<div class="panel"><h2>技能触发 Top</h2><table><thead><tr><th>技能</th><th>次数</th></tr></thead><tbody>' + (topTrig || '<tr><td colspan="2" class="muted">暂无(重启pi会话后记录)</td></tr>') + "</tbody></table></div>" +
+    "</div>";
+}
+
+/* ========== 技能中心 ========== */
+async function loadSkills() {
+  const d = await api("/api/skills");
+  const catFilter = document.getElementById("cat-filter")?.value || "all";
+  const q = (document.getElementById("skill-q")?.value || "").toLowerCase();
+  let list = d.skills || [];
+  if (catFilter !== "all") list = list.filter((x) => x.category === catFilter);
+  if (q) list = list.filter((x) => (x.name + " " + (x.cnName||"") + " " + (x.oneLiner||"")).toLowerCase().includes(q));
+  const cats = [...new Set((d.skills||[]).map((x) => x.category))].sort();
+  const opts = '<option value="all">全部分类</option>' + cats.map((c)=>'<option value="' + esc(c) + '">' + esc(c) + "</option>").join("");
+  const rows = list.map((x) =>
+    "<tr>" +
+    '<td><a href="#" onclick="showSkillCard(\'' + esc(x.name) + '\');return false;">' + esc(x.name) + "</a></td>" +
+    '<td class="muted">' + esc(x.cnName||"") + "</td>" +
+    '<td><span class="tag" style="background:#242933;color:var(--accent)">' + esc(x.categoryIcon||"") + " " + esc(x.category||"") + "</span></td>" +
+    "<td>" + esc(x.source) + ":" + esc(x.scope) + "</td>" +
+    "<td>" + statusTag(x.status, x.migratedTo) + "</td>" +
+    "<td>" + (x.enabled ? '<span class="tag green">启用</span>' : '<span class="tag red">禁用</span>') + "</td>" +
+    "<td>" + (x.triggerCount ? "<b>"+x.triggerCount+"</b>" : '<span class="muted">0</span>') + "</td>" +
+    "<td>" + (x.healthScore!=null ? (x.healthLevel==="healthy"?"🟢":x.healthLevel==="attention"?"🟡":"🔴")+" "+x.healthScore : "—") + "</td>" +
+    '<td class="muted">' + esc((x.oneLiner||"").slice(0,40)) + "</td>" +
+    "<td>" +
+      '<button class="op" title="'+(x.enabled?"从 agent 上下文移除":"恢复加载")+'" onclick="toggleSkill(\'' + esc(x.name) + "'," + !x.enabled + ')">' + (x.enabled?"禁用":"启用") + "</button>" +
+      '<button class="op" onclick="showSkillCard(\'' + esc(x.name) + '\')">详情</button>' +
+    "</td>" +
+    "</tr>").join("");
+  $("#content").innerHTML = '<div class="panel">' +
+    '<div style="margin:6px 0;display:flex;gap:8px;align-items:center;flex-wrap:wrap">' +
+      '<input id="skill-q" placeholder="搜索技能/说明…" oninput="loadSkills()" style="flex:1;min-width:160px;background:#242933;color:var(--fg);border:1px solid var(--line);border-radius:8px;padding:6px 10px">' +
+      '<select id="cat-filter" onchange="loadSkills()" style="background:#242933;color:var(--fg);border:1px solid var(--line);border-radius:6px;padding:4px 8px">' + opts + "</select>" +
+      '<span class="muted" style="font-size:12px">触发合计 ' + d.triggers + " · 🟢" + (d.summary?.byLevel?.healthy||0) + " 🟡" + (d.summary?.byLevel?.attention||0) + " 🔴" + (d.summary?.byLevel?.risk||0) + "</span>" +
+    "</div>" +
+    '<table><thead><tr><th>名称</th><th>中文名</th><th>分类</th><th>来源</th><th>状态</th><th>启停</th><th>触发</th><th>健康</th><th>说明</th><th>操作</th></tr></thead><tbody>' + rows + "</tbody></table>" +
+    '<p class="muted" style="font-size:11px;margin-top:8px">启停=真控制: 禁用后 pi 在下一回合把该技能从系统提示移除(agent 不再看见)。</p>' +
+  "</div>";
+}
+
+async function toggleSkill(name, enable) {
+  await fetch("/api/skills/toggle", { method:"POST", headers:{ "Content-Type":"application/json" }, body: JSON.stringify({ name, enabled: enable }) });
+  toast((enable ? "✓ 已启用 " : "✓ 已禁用 ") + name + "(下一回合对 agent 生效)");
+  loadSkills();
+}
+
+async function showSkillCard(name) {
+  const d = await api("/api/skills").then((r)=>(r.skills||[]).find((x)=>x.name===name));
+  if (!d) return toast("未找到 "+name);
+  let overlay = document.getElementById("skill-modal");
+  if (!overlay) {
+    overlay = document.createElement("div");
+    overlay.id = "skill-modal";
+    overlay.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;z-index:998";
+    document.body.appendChild(overlay);
+  }
+  overlay.innerHTML =
+    '<div style="background:var(--card);border:1px solid var(--line);border-radius:12px;padding:22px;max-width:560px;width:92%">' +
+    '<h2>📌 ' + esc(d.cnName||d.name) + ' <span class="muted" style="font-size:13px;font-weight:normal">' + esc(d.name) + "</span></h2>" +
+    '<p class="muted" style="margin:6px 0">' + esc(d.categoryIcon||"") + " " + esc(d.category||"-") + " · " + esc(d.source) + ":" + esc(d.scope) + " · 触发 " + (d.triggerCount??0) + " 次" + (d.healthScore!=null?(" · 健康 "+d.healthScore):"") + "</p>" +
+    '<p style="margin:10px 0"><b>是什么:</b> ' + esc(d.oneLiner||"(无)") + "</p>" +
+    '<p style="margin:10px 0"><b>怎么用:</b> ' + esc(d.usageHint||d.description||"(无)") + "</p>" +
+    ((d.issues&&d.issues.length)?'<p style="margin:10px 0;color:var(--yellow)"><b>健康提示:</b> ' + esc(d.issues.join("; ")) + "</p>":"") +
+    '<div style="display:flex;gap:8px;margin-top:14px">' +
+      '<button class="op" onclick="toggleSkill(\'' + esc(name) + "'," + !d.enabled + ');document.getElementById(\'skill-modal\').remove()">' + (d.enabled?"禁用此技能":"启用此技能") + "</button>" +
+      '<button class="op" onclick="document.getElementById(\'skill-modal\').remove()">关闭</button>' +
+    "</div></div>";
+}
+
+/* ========== 会话中心 ========== */
+var sessTimer = null;
+async function loadSessionsPage() {
+  var pair = await Promise.all([api("/api/hub"), api("/api/metrics")]);
+  var hub = pair[0], ms = pair[1];
+  var metricsById = new Map((ms||[]).map(function(m){return [m.sessionId,m];}));
+  var live = hub.live || {};
+  var liveEvts = (live.recent||[]).slice(0,12).map(function(e){
+    var t=(e.ts||"").slice(11,19);
+    if(e.type==="tool_call") return '<div><span class="muted">'+t+'</span> 🛠 <b>'+esc(e.toolName)+'</b> <span class="muted">'+esc(JSON.stringify(e.input||"").slice(0,50))+"</span></div>";
+    if(e.type==="assistant_message") return '<div style="color:#d8c48a;font-size:12px"><span class="muted">'+t+'</span> 💭 '+esc(((e.thinking||e.text||"")+"").replace(/\s+/g," ").slice(0,80))+"</div>";
+    return "";
+  }).filter(Boolean).join("");
+  var rows = (hub.sessions||[]).slice(0,60).map(function(s){
+    var m = metricsById.get(s.id);
+    var oc = s.outcome;
+    var grade = m?'<span class="tag '+(m.reliability.grade==="A"?"green":m.reliability.grade==="B"?"yellow":"red")+'">'+m.reliability.grade+"</span>":"—";
+    return "<tr>" +
+      "<td>"+(oc?(oc.level==="high"?"🟢":oc.level==="medium"?"🟡":"🔴")+oc.score:(m?m.reliability.grade:"—"))+"</td>" +
+      '<td><a href="#" onclick="showReview(\''+esc(s.id)+'\');return false;" class="mono">'+esc(s.id.slice(0,18))+"</a></td>" +
+      "<td>"+esc(s.harness)+"</td>" +
+      "<td>"+esc((s.startedAt||"").slice(0,10))+"</td>" +
+      "<td>"+s.messages+"/"+s.tools.length+(s.storyCount?" /"+s.storyCount+"🧠":"")+"</td>" +
+      "<td>"+(m?m.performance.turns:"-")+"t</td>" +
+      "<td>"+grade+"</td>" +
+      '<td class="muted">'+esc((s.cwd||"").slice(0,30))+"</td>" +
+    "</tr>";
+  }).join("");
+  $("#content").innerHTML =
+    '<div class="cards">' +
+      '<div class="card"><div class="num">'+(hub.summary?.totalSessions??0)+'</div><div class="label">会话</div></div>' +
+      '<div class="card"><div class="num">'+fmt(hub.summary?.totalTools??0)+'</div><div class="label">工具调用</div></div>' +
+      '<div class="card"><div class="num">🟢'+(hub.summary?.highOutcome??0)+'</div><div class="label">中:'+(hub.summary?.mediumOutcome??0)+" 低:"+(hub.summary?.lowOutcome??0)+'</div></div>' +
+      '<div class="card"><div class="num">'+(live.window1h?.toolCalls??0)+'</div><div class="label">⚡最近1h调用</div></div>' +
+    "</div>" +
+    '<div class="panel"><h2>⚡ 正在发生 (实时观测思考与推理链)</h2>' +
+      '<div id="live-stream" style="max-height:180px;overflow:auto;font-size:12px">'+(liveEvts || '<span class="muted">暂无实时事件。若未生效: 重启 pi 会话让 extension 加载。</span>')+"</div>" +
+    "</div>" +
+    '<div class="panel"><h2>会话列表 (点击进入审查回放)</h2>' +
+      '<table><thead><tr><th>成效</th><th>id</th><th>harness</th><th>日期</th><th>消息/工具/思考</th><th>turns</th><th>可靠</th><th>项目</th></tr></thead><tbody>'+rows+"</tbody></table></div>";
+  clearTimeout(sessTimer);
+  sessTimer = setTimeout(function(){ if(document.querySelector('nav button.active')?.dataset.page==="sessions") loadSessionsPage(); },5000);
+}
+
+async function showReview(id) {
+  var r = await api("/api/session-review/" + encodeURIComponent(id));
+  if (!r || r.error) return toast("无法加载会话审查");
+  var m = r.metrics, oc = r.outcome;
+  var turnsHtml = ((r.turns&&r.turns.list)||[]).map(function(t){
+    var think=(t.thinking||[]).map(function(th){return '<div style="color:#d8c48a;font-size:12px;margin:2px 0">💭 '+esc((th.text||"").replace(/\s+/g," ").slice(0,140))+"…</div>";}).join("");
+    var tools=(t.tools||[]).slice(0,6).map(function(tc){return '<div style="color:var(--accent);font-size:12px">🛠 '+esc(tc.name)+' <span class="muted">'+esc(tc.input||"")+"</span></div>";}).join("")+((t.tools.length>6)?'<div class="muted" style="font-size:11px">…共'+t.tools.length+"个</div>":"");
+    var out=(t.textOutput&&t.textOutput[0])?'<div class="muted" style="font-size:12px;margin:3px 0">↩ '+esc(String(t.textOutput[0]).replace(/\s+/g," ").slice(0,110))+"</div>":"";
+    return '<div class="panel" style="margin:8px 0;padding:10px 14px;border-left:3px solid var(--line)">' +
+      "<div><b>[turn "+t.index+"]</b> <span class=\"muted\">"+esc((t.ts||"").slice(11,19))+"</span> "+esc((t.userInput||"").slice(0,80))+
+      ' <span class="tag" style="margin-left:8px">所见: '+t.contextAtTurn.messages+"msg/"+t.contextAtTurn.thinking+"💭/"+t.contextAtTurn.tools+"🛠</span></div>" +
+      think+tools+out+"</div>";
+  }).join("");
+  $("#content").innerHTML =
+    '<button onclick="loadSessionsPage()" style="background:none;border:none;color:var(--accent);cursor:pointer;margin-bottom:10px">← 返回</button>' +
+    '<div class="cards">' +
+      '<div class="card"><div class="num">'+(oc?oc.score+"/100":"-")+'</div><div class="label">成效分 '+(oc?"("+oc.level+")":"")+"</div></div>" +
+      '<div class="card"><div class="num">'+(m?m.reliability.grade:"-")+'</div><div class="label">可靠性(错误率'+(m?(m.reliability.errorRate*100).toFixed(1):"-")+"%)</div></div>" +
+      '<div class="card"><div class="num">'+(r.turns?r.turns.total:"-")+'</div><div class="label">turns (工具'+r.toolCount+")</div></div>" +
+      '<div class="card"><div class="num">'+fmt(r.tokenUsage?r.tokenUsage.total:0)+'</div><div class="label">token</div></div>' +
+    "</div>" +
+    ((oc&&oc.signals.length)?('<div class="panel"><h2>成效依据</h2>'+oc.signals.map(function(s2){return "<div>• "+esc(s2)+"</div>";}).join("")+"</div>"):"") +
+    '<div class="panel"><h2>审查回放 ('+(r.turns?r.turns.total:0)+" turns — 思考为什么/工具做什么/agent 当时所见)</h2></div>" +
+    '<div style="max-height:70vh;overflow:auto">'+turnsHtml+"</div>";
+}
 
 async function loadRuntime() {
   const [ms, live] = await Promise.all([api("/api/metrics"), api("/api/live")]);
