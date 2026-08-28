@@ -22,7 +22,29 @@ import { detectDupes } from "./core/skills/dedupe.js";
 import { filterSessions, aggregateTokens, buildTimeline, contextStats, toolStats } from "./core/sessions/stats.js";
 import type { ScanResult } from "./types.js";
 
-const [, , cmd, ...args] = process.argv;
+let [, , cmd, ...args] = process.argv;
+
+// P2 命令收敛: 旧命令 -> 新入口(对用户只暴露核心组)
+const CMD_ALIAS: Record<string, string> = {
+  resources: "skill",          // hm skill 即全量列表
+  sessions: "session",
+  trace: "session",            // session <id> 默认含回放入口
+  story: "session",
+  turns: "session",
+  timeline: "session",
+  outcome: "session",
+  metrics: "session",
+  search: "session",
+  token: "dash",
+  trend: "dash",
+  freq: "dash",
+  slowest: "dash",
+  stats: "dash",
+  memories: "dash",
+  health: "skill",
+  dedupe: "skill",
+  suggest: "skill",
+};
 const useJson = args.includes("--json");
 
 function out(obj: unknown): void {
@@ -39,6 +61,20 @@ async function ensureScan(): Promise<ScanResult> {
 }
 
 async function main(): Promise<void> {
+  // 命令收敛: 旧命令别名转发(对用户只暴露核心组: skill/session/dash + 基础命令)
+  if (cmd && CMD_ALIAS[cmd]) {
+    const target = CMD_ALIAS[cmd];
+    if (target === "skill") {
+      // 这些旧命令等价于 skill 的子视图
+      const sub = cmd === "health" ? "--health" : cmd === "dedupe" ? "--dedupe" : cmd === "suggest" ? "--suggest" : "";
+      args.unshift(sub); // skill case 里处理
+    } else if (target === "session") {
+      args.unshift(cmd === "search" ? "--search" : cmd === "outcome" || cmd === "metrics" ? "--metrics" : "--review");
+    }
+    // dash 类旧命令直接转发 dash
+    cmd = target;
+  }
+
   if (!cmd || cmd === "help" || cmd === "--help" || cmd === "-h") {
     console.log(helpText());
     return;
@@ -105,6 +141,38 @@ async function main(): Promise<void> {
       break;
     }
     case "skill": {
+      // hm skill [name] — 技能聚合入口(--health 健康报告 / --dedupe 去重 / --suggest 推荐)
+      if (args[0] === "--health") {
+        const { assessSkillHealth, healthSummary } = await import("./core/skills/skillHealth.js");
+        const r = await ensureScan();
+        const health = assessSkillHealth(r.resources);
+        const sum = healthSummary(health);
+        if (useJson) return out({ health, summary: sum });
+        console.log(`技能健康 (${sum.total}): 🟢 ${sum.byLevel.healthy} · 🟡 ${sum.byLevel.attention} · 🔴 ${sum.byLevel.risk}`);
+        sum.actions.slice(0, 10).forEach((a) => console.log("  • " + a));
+        break;
+      }
+      if (args[0] === "--dedupe") {
+        const { detectDupes } = await import("./core/skills/dedupe.js");
+        const { semanticDedupe } = await import("./core/skills/semanticDedupe.js");
+        const r = await ensureScan();
+        const structural = detectDupes(r.resources);
+        const semantic = semanticDedupe().filter((x) => x.score >= 0.52);
+        if (useJson) return out({ structural, semantic });
+        console.log("[同名冲突]");
+        structural.filter((d) => d.kind === "same-name").forEach((d) => console.log("  " + d.names.join(", ")));
+        console.log("[语义重叠]");
+        semantic.slice(0, 12).forEach((d) => console.log(`  ${d.verdict === "semantic-duplicate" ? "🔴" : "🟡"} ${d.score} [${d.a}] ↔ [${d.b}]`));
+        break;
+      }
+      if (args[0] === "--suggest") {
+        const intent = args.slice(1).join(" ");
+        const { suggestSkill } = await import("./core/skills/skillDescriptions.js");
+        const res = suggestSkill(intent);
+        console.log(`推荐 (${res.category}):`);
+        res.list.forEach((i) => console.log(`  • ${i.name} — ${i.cnName}: ${i.what}`));
+        break;
+      }
       // hm skill <name> — 查技能中文说明
       const { skillInfo, allSkillInfos } = await import("./core/skills/skillDescriptions.js");
       const name = args[0];
@@ -325,6 +393,68 @@ async function main(): Promise<void> {
         console.log(`\n其他资源 (${others.length}):`);
         for (const res of others) console.log(`  [${res.kind}] ${res.name} @ ${res.source}:${res.scope}`);
       }
+      break;
+    }
+    case "session": {
+      // 聚合入口: hm session [id] [--metrics]
+      const { evaluateAll } = await import("./core/sessions/sessionOutcome.js");
+      const r = await ensureScan();
+      const id = args.find((a) => !a.startsWith("--"));
+      if (!id) {
+        const all = evaluateAll(r.sessions);
+        if (useJson) return out(all);
+        console.log(`会话列表 (${all.length}):`);
+        for (const o of all) {
+          const icon = o.level === "high" ? "🟢" : o.level === "medium" ? "🟡" : "🔴";
+          console.log(icon + " " + String(o.score).padStart(3) + " " + o.harness.padEnd(6) + " " + o.sessionId.slice(0, 28) + " " + (o.project || "").slice(-30));
+        }
+        console.log("");
+        console.log("详情: hm session <id> [--metrics]");
+        break;
+      }
+      const s2 = r.sessions.find((x) => x.id.startsWith(id));
+      if (!s2) return console.log("未找到会话 " + id);
+      const o = evaluateAll([s2])[0];
+      if (args.includes("--metrics")) {
+        const m3 = await import("./core/sessions/metrics.js");
+        const tv3 = await import("./core/sessions/turnView.js");
+        const tv = s2.harness === "pi" ? tv3.buildTurnViewFromPiFile(tv3.findPiSessionFile(s2.id), s2.id) : tv3.buildTurnViewFromCcFile(tv3.findCcSessionFile(s2.id), s2.id);
+        const m = tv ? m3.computeMetrics(tv, s2) : null;
+        if (useJson) return out({ outcome: o, metrics: m });
+        console.log("成效分: " + o.score + " (" + o.level + ")  可靠性: " + (m ? m.reliability.grade + " 错误率" + (m.reliability.errorRate * 100).toFixed(1) + "%" : "-"));
+        o.signals.forEach((x) => console.log("  • " + x));
+        break;
+      }
+      if (useJson) return out(o);
+      console.log("📌 会话 " + s2.id.slice(0, 34));
+      console.log("   成效: " + o.score + " (" + o.level + ") | 工具: " + s2.tools.length + " | 消息: " + s2.messages);
+      o.signals.forEach((x) => console.log("  • " + x));
+      console.log("");
+      console.log("审查: hm story <id> | hm turns <id>");
+      break;
+    }
+    case "dash": {
+      // 聚合仪表盘
+      const me4 = await import("./core/modelEval.js");
+      const an4 = await import("./core/anomaly.js");
+      const us4 = await import("./core/skills/usage.js");
+      const r = await ensureScan();
+      const me = me4.evaluateModels();
+      const anomalies = an4.detectAnomalies();
+      const usage = us4.skillUsageStats();
+      const tok = r.sessions.reduce((a, s) => a + (s.tokenUsage?.total ?? 0), 0);
+      console.log("📊 驾驶舱仪表盘");
+      console.log("会话 " + r.sessions.length + " · token " + tok.toLocaleString() + " · 技能触发 " + usage.totalTriggers);
+      console.log("");
+      console.log("🚨 异常 (" + anomalies.length + "):");
+      if (!anomalies.length) console.log("  无 ✓");
+      anomalies.slice(0, 8).forEach((a) => console.log("  [" + a.level + "] " + a.title));
+      console.log("");
+      console.log("🤖 模型评估:");
+      me.models.slice(0, 5).forEach((m) => console.log("  " + m.model + " — 评分 " + (m.score ?? "-") + " (" + m.sampleNote + ")"));
+      console.log("");
+      console.log("技能触发 Top:");
+      Object.entries(usage.bySkill).sort((a, b) => b[1] - a[1]).slice(0, 8).forEach(([k, v]) => console.log("  " + v + "\t" + k));
       break;
     }
     case "sessions": {

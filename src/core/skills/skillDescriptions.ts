@@ -104,3 +104,23 @@ export function skillInfo(name: string): SkillInfo | undefined {
 export function allSkillInfos(): SkillInfo[] {
   return Object.keys(ROWS).map((n) => skillInfo(n)!);
 }
+
+/** 场景推荐: 按意图关键词匹配分类, 返回该分类下的技能 */
+export function suggestSkill(intent: string): { category: string; list: SkillInfo[] } {
+  const kw: [RegExp, string][] = [
+    [/审|review|检查代码/, "质量调试"],
+    [/bug|调试|排查|出错/, "质量调试"],
+    [/需求|想法|规划|该做|要什么/, "需求规划"],
+    [/设计|架构|模块/, "设计架构"],
+    [/写代码|开发|实现|编码/, "开发编码"],
+    [/进度|下一步|状态|部署/, "项目进度"],
+    [/交接|协作|并行|教/, "协作交接"],
+    [/写作|文档|计划|报告/, "沟通写作"],
+    [/技能|资源|安装|管理/, "系统工具"],
+  ];
+  const q = intent.toLowerCase();
+  let cat: string | undefined;
+  for (const [re, c] of kw) if (re.test(q)) { cat = c; break; }
+  const category = cat ?? "系统工具";
+  return { category, list: allSkillInfos().filter((i) => i.category === category).slice(0, 10) };
+}
