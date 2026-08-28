@@ -438,67 +438,119 @@ async function showReview(id) {
   ]);
   var r = triple[0], sum = triple[1], ctxSeries = triple[2] || [];
   if (!r) return toast("未找到该会话(先点右上角刷新数据同步)");
-  var m = (window._v2Fleet) || null;
-  var t0 = r.totals;
-  // 分批渲染 turns
-  _reviewData = { turns: { total: r.totals.turns, list: r.turns.map(function(t, idx){
+
+  // 缓存供各tab渲染
+  window._rv = { id: id, r: r, sum: sum, ctx: ctxSeries };
+
+  // 统一数据结构(turns 供分批)
+  _reviewData = { turns: { total: r.totals.turns, list: r.turns.map(function(t){
     return { index: t.index, ts: t.ts, userInput: t.userInput,
              thinking: (t.thinking||[]).map(function(th){return {text: th.text};}),
              tools: (t.tools||[]).map(function(tc){return {name: tc.name, input: typeof tc.input==="string"?tc.input:JSON.stringify(tc.input), durationMs: tc.durationMs, error: tc.error};}),
              textOutput: [], contextAtTurn: t.contextBefore };
   })}};
-  var list = _reviewData.turns.list;
-  var first = renderTurnBatch(list, 0, Math.min(25, list.length));
-  _reviewShown = Math.min(25, list.length);
-  var moreBtn = (_reviewShown < list.length) ? '<div id="load-more-btn" style="text-align:center;margin:10px"><button class="op" onclick="loadMoreTurns()">' + "显示更多 ("+_reviewShown+"/"+list.length+")</button></div>" : "";
-  $("#content").innerHTML =
+  _reviewShown = 0;
+
+  var hdr =
     '<button onclick="loadSessionsPage()" style="background:none;border:none;color:var(--accent);cursor:pointer;margin-bottom:10px">← 返回列表</button>' +
+    '<div class="panel" style="padding:10px 14px"><b>' + esc(r.session.harness) + ' · ' + esc((r.session.started_at||"").slice(0,16)) + '</b> <span class="muted" style="font-size:12px">' + esc(r.session.cwd||"") + (r.session.degraded?' · <span class="tag red">降级</span>':"") + '</span></div>' +
+    '<div style="display:flex;gap:6px;margin:10px 0;flex-wrap:wrap">' +
+      '<button class="op active-tab" id="tab-overview" onclick="rvTab(\'overview\')">📋 概览</button>' +
+      '<button class="op" id="tab-replay" onclick="rvTab(\'replay\')">🧠 推理回放</button>' +
+      '<button class="op" id="tab-context" onclick="rvTab(\'context\')">📐 上下文</button>' +
+      '<button class="op" id="tab-config" onclick="rvTab(\'config\')">⚙ 配置</button>' +
+    '</div>' +
+    '<div id="rv-body"></div>';
+  $("#content").innerHTML = hdr;
+  rvTab("overview");
+}
+
+function rvTab(tab) {
+  var v = window._rv;
+  if (!v) return;
+  ["overview","replay","context","config"].forEach(function(t){
+    var el = document.getElementById("tab-"+t);
+    if (el) el.classList.toggle("active-tab", t === tab);
+  });
+  var body = document.getElementById("rv-body");
+  if (tab === "overview") return rvOverview(v);
+  if (tab === "replay") return rvReplay(v);
+  if (tab === "context") return rvContext(v);
+  if (tab === "config") return rvConfig(v);
+}
+
+/* ---- 概览 ---- */
+function rvOverview(v) {
+  var r = v.r, sum = v.sum;
+  var cards =
     '<div class="cards">' +
       '<div class="card"><div class="num">'+r.totals.turns+'</div><div class="label">turns</div></div>' +
       '<div class="card"><div class="num">'+fmt(r.totals.tools)+'</div><div class="label">工具调用</div></div>' +
       '<div class="card"><div class="num">'+fmt(r.totals.thinkingBlocks)+'</div><div class="label">思考块</div></div>' +
-      '<div class="card"><div class="num">'+fmt((r.totals.tokensIn||0)+(r.totals.tokensOut||0))+'</div><div class="label">token (in '+fmt(r.totals.tokensIn||0)+')</div></div>' +
-    '</div>' +
+      '<div class="card"><div class="num">'+fmt((r.totals.tokensIn||0)+(r.totals.tokensOut||0))+'</div><div class="label">token</div></div>' +
+    '</div>';
+  var sumHtml = (sum ? (
     '<div class="panel" style="border-left:3px solid var(--accent)">' +
       '<h2>🧾 这段时间 agent 干了什么</h2>' +
-      (sum ? ('<p style="margin:6px 0"><b>' + esc(sum.headline || "") + '</b></p>' +
-              '<p class="muted" style="font-size:12px">动作: ' + (sum.actions?'写'+sum.actions.write+' · 读'+sum.actions.read+' · 执行'+sum.actions.exec+' · 检索'+sum.actions.search+' · 规划'+sum.actions.plan:'-') + '</p>' +
-              (sum.touchedFiles&&sum.touchedFiles.length?'<p class="muted" style="font-size:12px">改动文件 ('+sum.touchedFiles.length+'): '+esc(sum.touchedFiles.slice(0,6).join(" · "))+(sum.touchedFiles.length>6?" …":"")+'</p>':"")) : '<p class="muted">暂无摘要</p>') +
-    '</div>' +
-    '<div class="panel" style="border-left:3px solid var(--green)">' +
-      '<h2>⚙ Agent 配置快照 (本会话)</h2>' +
-      (r.agentConfig ?
-        ('<p class="muted" style="font-size:12px;margin:4px 0">版本 <code>' + esc(r.agentConfig.version_hash) + '</code>' +
-          (r.agentConfig.model ? ' · 模型 ' + esc(r.agentConfig.model) : "") +
-          ' · 技能 ' + ((r.agentConfig.skills_loaded||[]).length) + ' 个' +
-          ' · 工具 ' + ((r.agentConfig.allowed_tools||[]).length) + ' 个' +
-          ' · system prompt ' + esc(String((r.agentConfig.system_prompt||"").length)) + ' 字符</p>') :
-        '<p class="muted" style="font-size:12px">无配置快照(重启 pi 会话后 extension 记录 config_snapshot 事件自动生成)</p>') +
-      (r.contextSnapshots && r.contextSnapshots.length ?
-        ('<div style="margin-top:8px">' +
-          r.contextSnapshots.slice(0, 3).map(function(cs){
-            var sp = cs.system_prompt_tokens || 0;
-            return '<div style="margin:4px 0"><span class="muted" style="font-size:11px">turn 上下文: system prompt ≈ ' + fmt(sp) + ' tok</span>' +
-              (sp ? '<div class="bar"><div style="width:100%;background:var(--green)"></div></div>' : "") + "</div>";
-          }).join("") + "</div>") :
-        '<p class="muted" style="font-size:11px;margin-top:6px">上下文构成暂无数据(D5 四段拆解依赖 extension config_snapshot 的 usage, 逐步积累)</p>') +
-    '</div>' +
-    (function(){
-      if (!ctxSeries.length) return '<div class="panel"><h2>📐 上下文构成演变</h2><p class="muted">暂无上下文快照</p></div>';
-      var bars = ctxSeries.map(function(c){
-        var sp=c.systemPromptTokens||0, hi=c.historyTokens||0, tr=c.toolResultTokens||0, fc=c.fileContentTokens||0;
-        var total=sp+hi+tr+fc; if(total<=0) return "";
-        var seg=function(v,color,label){ return v>0?'<div style="display:inline-block;height:14px;width:'+ (v/total*100).toFixed(1) +'%;background:'+color+'" title="'+label+': '+fmt(v)+' tok ('+(v/total*100).toFixed(0)+'%)"></div>':""; };
-        return '<div style="margin:4px 0"><span class="muted mono" style="font-size:11px">T'+c.turnIdx+'</span>' +
-          '<div style="display:flex;width:100%;border-radius:3px;overflow:hidden">' +
-          seg(sp,'#5db4ff','system prompt')+seg(hi,'#d8c48a','history')+seg(tr,'#3fb950','tool result')+seg(fc,'#d2a8ff','file content')+
-          '</div><span class="muted" style="font-size:10px">≈'+fmt(total)+' tok (sp/历史/工具/文件)</span></div>';
-      }).join("");
-      return '<div class="panel"><h2>📐 上下文构成演变 (每turn四段token占比: 蓝系统提示/黄历史/绿工具返回/紫文件)</h2>'+bars+'</div>';
-    })() +
-    '<div class="panel"><h2>审查回放 — '+esc(r.session.harness)+' · '+esc((r.session.started_at||"").slice(0,16))+' · '+esc(r.session.cwd||"")+(r.session.degraded?' <span class="tag red">部分数据降级</span>':"")+'</h2>' +
-    '<p class="muted" style="font-size:12px">每 turn 展示: 用户输入 → 💭思考(为什么) → 🛠工具(做什么,含耗时/错误) → agent 当时所见上下文构成</p></div>' +
+      '<p style="margin:6px 0"><b>' + esc(sum.headline || "") + '</b></p>' +
+      '<p class="muted" style="font-size:12px">动作: ' + (sum.actions ? '写'+sum.actions.write+' · 读'+sum.actions.read+' · 执行'+sum.actions.exec+' · 检索'+sum.actions.search+' · 规划'+sum.actions.plan : "-") + '</p>' +
+      ((sum.touchedFiles&&sum.touchedFiles.length) ? '<p class="muted" style="font-size:12px">改动文件 ('+sum.touchedFiles.length+'): '+esc(sum.touchedFiles.slice(0,8).join(" · "))+(sum.touchedFiles.length>8?" …":"")+'</p>' : "") +
+      ((sum.topTools&&sum.topTools.length) ? '<p class="muted" style="font-size:12px">高频工具: '+esc(sum.topTools.slice(0,5).map(function(t){return t.name+"×"+t.count}).join(" · "))+'</p>' : "") +
+    '</div>') : "");
+  document.getElementById("rv-body").innerHTML = cards + sumHtml;
+}
+
+/* ---- 推理回放 ---- */
+function rvReplay(v) {
+  var list = _reviewData.turns.list;
+  var first = renderTurnBatch(list, 0, Math.min(25, list.length));
+  _reviewShown = Math.min(25, list.length);
+  var moreBtn = (_reviewShown < list.length) ? '<div id="load-more-btn" style="text-align:center;margin:10px"><button class="op" onclick="loadMoreTurns()">' + "显示更多 ("+_reviewShown+"/"+list.length+")</button></div>" : "";
+  document.getElementById("rv-body").innerHTML =
+    '<div class="panel"><h2>🧠 推理回放 ('+_reviewData.turns.total+' turns — 思考为什么/工具做什么/当时所见)</h2></div>' +
     '<div id="turns-body" style="max-height:70vh;overflow:auto">'+first+moreBtn+"</div>";
+}
+
+/* ---- 上下文 ---- */
+function rvContext(v) {
+  var cs = v.ctx || [];
+  if (!cs.length) { document.getElementById("rv-body").innerHTML = '<div class="panel"><p class="muted">暂无上下文快照(需要 extension config_snapshot 事件)</p></div>'; return; }
+  var bars = cs.map(function(c){
+    var sp=c.systemPromptTokens||0, hi=c.historyTokens||0, tr=c.toolResultTokens||0, fc=c.fileContentTokens||0;
+    var total=sp+hi+tr+fc; if(total<=0) return "";
+    var seg=function(v2,color,label){ return v2>0?'<div style="display:inline-block;height:14px;width:'+(v2/total*100).toFixed(1)+'%;background:'+color+'" title="'+label+': '+fmt(v2)+' tok ('+(v2/total*100).toFixed(0)+'%)"></div>':""; };
+    return '<div style="margin:4px 0"><span class="muted mono" style="font-size:11px">T'+c.turnIdx+'</span>' +
+      '<div style="display:flex;width:100%;border-radius:3px;overflow:hidden">' +
+      seg(sp,'#5db4ff','system prompt')+seg(hi,'#d8c48a','history')+seg(tr,'#3fb950','tool result')+seg(fc,'#d2a8ff','file content')+
+      '</div><span class="muted" style="font-size:10px">≈'+fmt(total)+' tok</span></div>';
+  }).join("");
+  // token 表(采样)
+  var tblRows = cs.filter(function(c,idx){ return idx % Math.max(1, Math.ceil(cs.length/15)) === 0 || idx === cs.length-1; }).map(function(c){
+    return "<tr><td>T"+c.turnIdx+"</td><td>"+fmt(c.systemPromptTokens||0)+"</td><td>"+fmt(c.historyTokens||0)+"</td><td>"+fmt(c.toolResultTokens||0)+"</td><td>"+fmt(c.fileContentTokens||0)+"</td></tr>";
+  }).join("");
+  document.getElementById("rv-body").innerHTML =
+    '<div class="panel"><h2>📐 上下文构成演变</h2>' +
+      '<p class="muted" style="font-size:11px">蓝=系统提示 黄=历史消息 绿=工具返回 紫=文件内容 (估算口径 chars/3)</p>' + bars + "</div>" +
+    '<div class="panel"><h2>Token 构成明细(采样)</h2><table><thead><tr><th>turn</th><th>系统提示</th><th>历史</th><th>工具返回</th><th>文件</th></tr></thead><tbody>'+tblRows+'</tbody></table></div>';
+}
+
+/* ---- 配置 ---- */
+function rvConfig(v) {
+  var r = v.r;
+  var c = r.agentConfig;
+  var body = c ? (
+    '<div class="cards">' +
+      '<div class="card"><div class="num mono" style="font-size:16px">'+esc(c.version_hash)+'</div><div class="label">版本 hash</div></div>' +
+      '<div class="card"><div class="num" style="font-size:16px">'+esc(c.model||"-")+'</div><div class="label">模型</div></div>' +
+      '<div class="card"><div class="num">'+(c.skills_loaded||[]).length+'</div><div class="label">加载技能</div></div>' +
+      '<div class="card"><div class="num">'+(c.allowed_tools||[]).length+'</div><div class="label">授权工具</div></div>' +
+    '</div>' +
+    '<div class="panel"><h2>技能列表</h2><p>' + ((c.skills_loaded||[]).map(esc).join(" · ") || '<span class="muted">无</span>') + '</p></div>' +
+    '<div class="panel"><h2>授权工具</h2><p>' + ((c.allowed_tools||[]).map(esc).join(" · ") || '<span class="muted">无</span>') + '</p></div>' +
+    '<div class="panel"><h2>System Prompt (' + esc(String((c.system_prompt||"").length)) + ' 字符)</h2>' +
+      '<div class="trace" style="max-height:40vh">' + esc(c.system_prompt||"") + "</div></div>"
+  ) : '<div class="panel"><p class="muted">无配置快照。重启 pi 会话后 extension 会在每个回合记录 config_snapshot 事件自动生成。</p></div>';
+  document.getElementById("rv-body").innerHTML = body;
 }
 
 async function loadUsage() {
