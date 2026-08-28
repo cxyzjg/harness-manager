@@ -3,7 +3,7 @@
  * - 同名: 不同来源/目录出现同名 → 候选
  * - 功能重叠: 描述关键词聚类（跨来源）
  */
-import type { HarnessResource } from "../types.js";
+import type { HarnessResource } from "../../types.js";
 
 export interface DupeCandidate {
   kind: "same-name" | "overlap";

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildStory, renderStory } from "../src/analysis/story.js";
+import { buildStory, renderStory } from "../src/core/sessions/story.js";
 import type { Session } from "../src/types.js";
 
 const mkSession = (over: Partial<Session>): Session => ({

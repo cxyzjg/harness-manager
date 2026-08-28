@@ -9,10 +9,10 @@
  *
  * Web "会话中心" 页 = 一个视图看全。
  */
-import type { Session } from "../types.js";
+import type { Session } from "../../types.js";
 import { liveSnapshot } from "./realtime.js";
 import { evaluateAll, type SessionOutcome } from "./sessionOutcome.js";
-import { buildStory, type StoryNode } from "../analysis/story.js";
+import { buildStory, type StoryNode } from "./story.js";
 
 export interface SessionHubData {
   live: ReturnType<typeof liveSnapshot>;

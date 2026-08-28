@@ -7,7 +7,7 @@
  *   S2 实词语义重叠: 中英分词后 Jaccard + 同义词簇命中
  *   S3 同义词典:     领域近义簇(debug/审查/测试/计划/脚手架/交接...)计数
  */
-import { allSkillInfos, type SkillInfo } from "../../analysis/skillDescriptions.js";
+import { allSkillInfos, type SkillInfo } from "./skillDescriptions.js";
 
 export interface SemanticPair {
   a: string;

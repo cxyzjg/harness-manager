@@ -6,7 +6,7 @@
  *  可靠性: 错误率 / 重试率 / 空转率(无产出turn) / 可靠性等级
  */
 import type { TurnView } from "./turnView.js";
-import type { Session } from "../types.js";
+import type { Session } from "../../types.js";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";

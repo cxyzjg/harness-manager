@@ -1,7 +1,7 @@
 /**
  * M2 分析层：会话检索 / token 趋势 / 时间线 / 上下文规模
  */
-import type { Session, ToolCall } from "../types.js";
+import type { Session, ToolCall } from "../../types.js";
 
 // ---------- 会话检索 ----------
 export interface SessionFilter {

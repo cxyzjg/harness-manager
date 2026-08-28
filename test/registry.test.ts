@@ -2,8 +2,8 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { skillHash, resolveConflict } from "../src/monitor/registry.js";
-import { loadRegistry, saveRegistry } from "../src/monitor/registry.js";
+import { skillHash, resolveConflict } from "../src/core/skills/registry.js";
+import { loadRegistry, saveRegistry } from "../src/core/skills/registry.js";
 
 let repoRoot: string;
 

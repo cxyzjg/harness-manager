@@ -10,7 +10,7 @@
  *  - 成本效率: token 总量, 每有效产出消耗, 消息/调用比
  *  - 规模: 调用次数, 会话长度(上下文规模)
  */
-import type { Session, ToolCall } from "../types.js";
+import type { Session, ToolCall } from "../../types.js";
 
 export type OutcomeLevel = "high" | "medium" | "low";
 

@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { mkdirSync, writeFileSync, rmSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
-import { readLiveEvents, liveSnapshot } from "../src/monitor/realtime.js";
+import { readLiveEvents, liveSnapshot } from "../src/core/sessions/realtime.js";
 
 const LOG_DIR = join(homedir(), ".harness-manager", "realtime");
 const LOG_FILE = join(LOG_DIR, "events.log");

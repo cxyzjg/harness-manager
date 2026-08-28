@@ -8,9 +8,9 @@
  */
 import { existsSync, readFileSync, writeFileSync, mkdirSync, cpSync, readdirSync } from "node:fs";
 import { join } from "node:path";
-import { dataDir } from "../config.js";
-import { loadCache, saveCache } from "../storage.js";
-import type { HarnessResource } from "../types.js";
+import { dataDir } from "../../config.js";
+import { loadCache, saveCache } from "../../storage.js";
+import type { HarnessResource } from "../../types.js";
 
 export interface NewSkillCandidate {
   name: string;

@@ -11,7 +11,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
-import type { LiveEvent } from "./realtime.js";
+import type { LiveEvent } from "../sessions/realtime.js";
 
 export interface SkillTrigger {
   ts: string;

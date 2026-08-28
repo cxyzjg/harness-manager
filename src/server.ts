@@ -17,13 +17,13 @@ import { join } from "node:path";
 import { loadConfig, ensureDataDir } from "./config.js";
 import { scan } from "./orchestrator.js";
 import { buildLegacyShape, saveResources } from "./db/store.js";
-import { detectDupes } from "./analysis/dedupe.js";
-import { aggregateTokens, contextStats, toolStats } from "./analysis/stats.js";
-import { buildCallTree } from "./analysis/calltree.js";
+import { detectDupes } from "./core/skills/dedupe.js";
+import { aggregateTokens, contextStats, toolStats } from "./core/sessions/stats.js";
+import { buildCallTree } from "./core/sessions/calltree.js";
 import { planMutation, executeMutation, executeDedupe, repoRoot, type ApplyRequest } from "./apply.js";
-import * as skillCategories from "./analysis/skillCategories.js";
-import { evaluateAll } from "./monitor/sessionOutcome.js";
-import { assessSkillHealth, healthSummary } from "./monitor/skillHealth.js";
+import * as skillCategories from "./core/skills/skillCategories.js";
+import { evaluateAll } from "./core/sessions/sessionOutcome.js";
+import { assessSkillHealth, healthSummary } from "./core/skills/skillHealth.js";
 
 const htmlPath = join(repoRoot, "src", "web", "index.html");
 
@@ -122,7 +122,7 @@ const routes: Record<string, (url: URL) => Promise<unknown> | unknown> = {
     const b = url.searchParams.get("b") ?? "";
     if (!a || !b) return { error: "需要 a/b 两个配置id" };
     const { compareConfigs } = await import("./core/configCompare.js");
-    const { evaluateAll } = await import("./monitor/sessionOutcome.js");
+    const { evaluateAll } = await import("./core/sessions/sessionOutcome.js");
     const outcomes = evaluateAll(cached?.sessions ?? []);
     const outcomeOf = new Map(outcomes.map((o) => [o.sessionId, o.score]));
     return compareConfigs(a, b, outcomeOf);
@@ -130,11 +130,11 @@ const routes: Record<string, (url: URL) => Promise<unknown> | unknown> = {
   "/api/v2/skill-effects": async () => {
     const [{ linkSkillEffects }, { assessSkillHealth }] = await Promise.all([
       import("./core/skills/effectLink.js"),
-      import("./monitor/skillHealth.js"),
+      import("./core/skills/skillHealth.js"),
     ]);
     const sessions = (cached?.sessions ?? []).map((s) => ({ id: s.id, harness: s.harness, started_at: s.startedAt, cwd: s.cwd }));
     // 成效分映射
-    const { evaluateAll } = await import("./monitor/sessionOutcome.js");
+    const { evaluateAll } = await import("./core/sessions/sessionOutcome.js");
     const outcomes = evaluateAll(cached?.sessions ?? []);
     const outcomeOf = new Map(outcomes.map((o) => [o.sessionId, o.score]));
     const effects = linkSkillEffects(sessions, outcomeOf);
@@ -149,12 +149,12 @@ const routes: Record<string, (url: URL) => Promise<unknown> | unknown> = {
   "/api/dash": async () => {
     // 仪表盘: 纯量化指标聚合
     const [{ aggregateTokens }, { assessSkillHealth, healthSummary }, { skillUsageStats }] = await Promise.all([
-      import("./analysis/stats.js"),
-      import("./monitor/skillHealth.js"),
-      import("./monitor/usage.js"),
+      import("./core/sessions/stats.js"),
+      import("./core/skills/skillHealth.js"),
+      import("./core/skills/usage.js"),
     ]);
-    const mt = cached ? await import("./monitor/metrics.js") : null;
-    const tv = cached ? await import("./monitor/turnView.js") : null;
+    const mt = cached ? await import("./core/sessions/metrics.js") : null;
+    const tv = cached ? await import("./core/sessions/turnView.js") : null;
     const resources = cached?.resources ?? [];
     const sessions = cached?.sessions ?? [];
     const health = assessSkillHealth(resources);
@@ -193,10 +193,10 @@ const routes: Record<string, (url: URL) => Promise<unknown> | unknown> = {
   "/api/skills": async () => {
     // 技能中心聚合: 资源+分类+说明+启停状态+触发统计+健康
     const [{ skillInfo }, { getDisabledSkills }, { skillUsageStats }, { assessSkillHealth, healthSummary }] = await Promise.all([
-      import("./analysis/skillDescriptions.js"),
+      import("./core/skills/skillDescriptions.js"),
       import("./core/skills/control.js"),
-      import("./monitor/usage.js"),
-      import("./monitor/skillHealth.js"),
+      import("./core/skills/usage.js"),
+      import("./core/skills/skillHealth.js"),
     ]);
     const disabled = new Set(getDisabledSkills());
     const usage = skillUsageStats();
@@ -241,14 +241,14 @@ const routes: Record<string, (url: URL) => Promise<unknown> | unknown> = {
       ? { cs: contextStats(cached.sessions), ts: toolStats(cached.sessions) }
       : {},
   "/api/memories": () => cached?.memories ?? [],
-  "/api/live": () => import("./monitor/realtime.js").then(({ liveSnapshot }) => liveSnapshot()),
+  "/api/live": () => import("./core/sessions/realtime.js").then(({ liveSnapshot }) => liveSnapshot()),
   "/api/skill-info": (url) => {
     const name = url.searchParams.get("name") ?? "";
-    return import("./analysis/skillDescriptions.js").then(({ skillInfo }) => skillInfo(name) ?? null);
+    return import("./core/skills/skillDescriptions.js").then(({ skillInfo }) => skillInfo(name) ?? null);
   },
   "/api/suggest": (url) => {
     const q = url.searchParams.get("q") ?? "";
-    return import("./analysis/skillDescriptions.js").then(({ allSkillInfos }) => {
+    return import("./core/skills/skillDescriptions.js").then(({ allSkillInfos }) => {
       const kw: [RegExp, string][] = [
         [/审|review|检查代码/, "质量调试"],
         [/bug|调试|排查|出错/, "质量调试"],
@@ -269,14 +269,14 @@ const routes: Record<string, (url: URL) => Promise<unknown> | unknown> = {
   },
   "/api/hub": () =>
     cached
-      ? import("./monitor/sessionHub.js").then(({ buildSessionHub }) => buildSessionHub(cached!.sessions))
+      ? import("./core/sessions/sessionHub.js").then(({ buildSessionHub }) => buildSessionHub(cached!.sessions))
       : null,
   "/api/turns": (url) => {
     const id = url.searchParams.get("id") ?? "";
     if (!id || !cached) return null;
     const s = cached!.sessions.find((x) => x.id.startsWith(id));
     if (!s) return null;
-    return import("./monitor/turnView.js").then(({ buildTurnViewFromPiFile, buildTurnViewFromCcFile, findPiSessionFile, findCcSessionFile }) =>
+    return import("./core/sessions/turnView.js").then(({ buildTurnViewFromPiFile, buildTurnViewFromCcFile, findPiSessionFile, findCcSessionFile }) =>
       s.harness === "pi"
         ? buildTurnViewFromPiFile(findPiSessionFile(s.id), s.id)
         : buildTurnViewFromCcFile(findCcSessionFile(s.id), s.id)
@@ -285,8 +285,8 @@ const routes: Record<string, (url: URL) => Promise<unknown> | unknown> = {
   "/api/metrics": () => {
     if (!cached) return [];
     return Promise.all([
-      import("./monitor/metrics.js"),
-      import("./monitor/turnView.js"),
+      import("./core/sessions/metrics.js"),
+      import("./core/sessions/turnView.js"),
     ]).then(([{ computeMetrics }, tv]) =>
       cached!.sessions.flatMap((s) => {
         const view = s.harness === "pi"
@@ -296,9 +296,9 @@ const routes: Record<string, (url: URL) => Promise<unknown> | unknown> = {
       })
     );
   },
-  "/api/usage": () => import("./monitor/usage.js").then(({ skillUsageStats }) => skillUsageStats()),
+  "/api/usage": () => import("./core/skills/usage.js").then(({ skillUsageStats }) => skillUsageStats()),
   "/api/registry": () =>
-    import("./monitor/registry.js").then(({ loadRegistry }) => loadRegistry()),
+    import("./core/skills/registry.js").then(({ loadRegistry }) => loadRegistry()),
   "/api/outcome": () => (cached ? evaluateAll(cached.sessions) : []),
   "/api/health": () =>
     cached
@@ -323,7 +323,7 @@ export function startServer(): void {
         let body = "";
         for await (const chunk of req) body += chunk;
         const payload = JSON.parse(body) as { names?: string[]; confirm?: boolean };
-        const { detectNewSkills, migrateNewSkills, saveBaseline, singleSourceNames } = await import("./monitor/onboard.js");
+        const { detectNewSkills, migrateNewSkills, saveBaseline, singleSourceNames } = await import("./core/skills/onboard.js");
         const candidates = detectNewSkills(cached?.resources ?? [], repoRoot);
         if (payload.confirm === true) {
           const toMigrate = payload.names
@@ -379,11 +379,11 @@ export function startServer(): void {
           const id = decodeURIComponent(rm[1]);
           const s = cached!.sessions.find((x) => x.id.startsWith(id));
           if (!s) return json(res, { error: "not found" }, 404);
-          const tvmod = await import("./monitor/turnView.js");
-          const mt = await import("./monitor/metrics.js");
-          const ot = await import("./monitor/sessionOutcome.js");
-          const { buildCallTree } = await import("./analysis/calltree.js");
-          const { buildStory } = await import("./analysis/story.js");
+          const tvmod = await import("./core/sessions/turnView.js");
+          const mt = await import("./core/sessions/metrics.js");
+          const ot = await import("./core/sessions/sessionOutcome.js");
+          const { buildCallTree } = await import("./core/sessions/calltree.js");
+          const { buildStory } = await import("./core/sessions/story.js");
           const tv = s.harness === "pi"
             ? tvmod.buildTurnViewFromPiFile(tvmod.findPiSessionFile(s.id), s.id)
             : tvmod.buildTurnViewFromCcFile(tvmod.findCcSessionFile(s.id), s.id);
@@ -426,7 +426,7 @@ export function startServer(): void {
         if (sm) {
           const detail = sessionDetail(decodeURIComponent(sm[1]));
           if (!detail) return json(res, { error: "not found" }, 404);
-          const { buildStory } = await import("./analysis/story.js");
+          const { buildStory } = await import("./core/sessions/story.js");
           return json(res, { id: detail.id, story: buildStory(detail) });
         }
         // 会话详情

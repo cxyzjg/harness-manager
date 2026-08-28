@@ -4,8 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parsePiSession } from "../src/adapters/pi.js";
 import { parseCcSession } from "../src/adapters/claude.js";
-import { buildCallTree, renderTree, slowestCalls, toolFrequency } from "../src/analysis/calltree.js";
-import { detectDupes } from "../src/analysis/dedupe.js";
+import { buildCallTree, renderTree, slowestCalls, toolFrequency } from "../src/core/sessions/calltree.js";
+import { detectDupes } from "../src/core/skills/dedupe.js";
 import type { HarnessResource } from "../src/types.js";
 
 function tmpSession(name: string, content: string): string {

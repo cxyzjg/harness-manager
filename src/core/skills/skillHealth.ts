@@ -11,8 +11,8 @@
  *  - 来源可信: 来源(单源/包/全局/项目)
  *  - 加载风险: 同名冲突
  */
-import type { HarnessResource } from "../types.js";
-import { detectDupes } from "../analysis/dedupe.js";
+import type { HarnessResource } from "../../types.js";
+import { detectDupes } from "./dedupe.js";
 
 export type HealthLevel = "healthy" | "attention" | "risk";
 

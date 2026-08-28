@@ -2,8 +2,8 @@ import { describe, it, expect } from "vitest";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { buildTurnViewFromPiFile } from "../src/monitor/turnView.js";
-import { computeMetrics } from "../src/monitor/metrics.js";
+import { buildTurnViewFromPiFile } from "../src/core/sessions/turnView.js";
+import { computeMetrics } from "../src/core/sessions/metrics.js";
 import type { Session } from "../src/types.js";
 
 function piFile(lines: object[]): string {

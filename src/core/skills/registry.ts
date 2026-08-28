@@ -11,8 +11,8 @@ import { existsSync, readFileSync, writeFileSync, mkdirSync, readdirSync } from 
 import { createHash } from "node:crypto";
 import { join } from "node:path";
 import { homedir } from "node:os";
-import { dataDir } from "../config.js";
-import { categoryOf } from "../analysis/skillCategories.js";
+import { dataDir } from "../../config.js";
+import { categoryOf } from "./skillCategories.js";
 
 export type SkillState = "active" | "disabled" | "duplicate" | "orphan";
 export type ConflictAction = "update" | "keep" | "ignore";

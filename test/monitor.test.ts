@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { evaluateSession, evaluateAll } from "../src/monitor/sessionOutcome.js";
-import { assessSkillHealth, healthSummary } from "../src/monitor/skillHealth.js";
+import { evaluateSession, evaluateAll } from "../src/core/sessions/sessionOutcome.js";
+import { assessSkillHealth, healthSummary } from "../src/core/skills/skillHealth.js";
 import type { Session, HarnessResource } from "../src/types.js";
 
 const mkSession = (over: Partial<Session>): Session => ({

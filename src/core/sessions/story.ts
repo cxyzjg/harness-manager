@@ -4,7 +4,7 @@
  * 把会话重建成"思考(为什么) → 工具(做了什么) → 结果"的完整执行轨迹，
  * 用于追溯、跟踪、判断会话成效。
  */
-import type { Session, ToolCall } from "../types.js";
+import type { Session, ToolCall } from "../../types.js";
 
 export type StoryNodeKind = "thinking" | "tool" | "summary";
 

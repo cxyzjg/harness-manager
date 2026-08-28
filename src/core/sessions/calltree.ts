@@ -2,7 +2,7 @@
  * 调用链重建（SPEC FR-3）
  * 从 ToolCall[]（含 parentId）重建树。
  */
-import type { ToolCall } from "../types.js";
+import type { ToolCall } from "../../types.js";
 
 export interface CallNode {
   call: ToolCall;

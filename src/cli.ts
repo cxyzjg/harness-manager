@@ -17,9 +17,9 @@ import { buildLegacyShape, saveResources } from "./db/store.js";
 import { readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
-import { buildCallTree, renderTree, slowestCalls, toolFrequency } from "./analysis/calltree.js";
-import { detectDupes } from "./analysis/dedupe.js";
-import { filterSessions, aggregateTokens, buildTimeline, contextStats, toolStats } from "./analysis/stats.js";
+import { buildCallTree, renderTree, slowestCalls, toolFrequency } from "./core/sessions/calltree.js";
+import { detectDupes } from "./core/skills/dedupe.js";
+import { filterSessions, aggregateTokens, buildTimeline, contextStats, toolStats } from "./core/sessions/stats.js";
 import type { ScanResult } from "./types.js";
 
 const [, , cmd, ...args] = process.argv;
@@ -55,7 +55,7 @@ async function main(): Promise<void> {
       );
       if (r.errors.length) r.errors.forEach((e) => console.log(`  ⚠ ${e}`));
       // 新技能检测 + 询问迁移
-      const { detectNewSkills, migrateNewSkills, saveBaseline, singleSourceNames } = await import("./monitor/onboard.js");
+      const { detectNewSkills, migrateNewSkills, saveBaseline, singleSourceNames } = await import("./core/skills/onboard.js");
       const repoPath = process.env.HM_REPO_ROOT ?? process.cwd();
       const candidates = detectNewSkills(r.resources, repoPath);
       if (candidates.length) {
@@ -78,7 +78,7 @@ async function main(): Promise<void> {
     }
     case "live": {
       // hm live — 实时监控（pi extension 记录的工具调用）
-      const { liveSnapshot } = await import("./monitor/realtime.js");
+      const { liveSnapshot } = await import("./core/sessions/realtime.js");
       const snap = liveSnapshot();
       if (useJson) return out(snap);
       if (!snap.active) {
@@ -106,7 +106,7 @@ async function main(): Promise<void> {
     }
     case "skill": {
       // hm skill <name> — 查技能中文说明
-      const { skillInfo, allSkillInfos } = await import("./analysis/skillDescriptions.js");
+      const { skillInfo, allSkillInfos } = await import("./core/skills/skillDescriptions.js");
       const name = args[0];
       if (!name) {
         console.log("技能中文说明库:");
@@ -132,8 +132,8 @@ async function main(): Promise<void> {
     }
     case "suggest": {
       // hm suggest <意图> — 按场景推荐技能
-      const { allSkillInfos } = await import("./analysis/skillDescriptions.js");
-      const { ALL_CATEGORIES } = await import("./analysis/skillCategories.js");
+      const { allSkillInfos } = await import("./core/skills/skillDescriptions.js");
+      const { ALL_CATEGORIES } = await import("./core/skills/skillCategories.js");
       const intent = args.join(" ").toLowerCase();
       if (!intent) return console.log("用法: hm suggest <意图>，如 'hm suggest 我要写代码'");
       const kw: [RegExp, string][] = [
@@ -160,7 +160,7 @@ async function main(): Promise<void> {
     }
     case "turns": {
       // hm turns <id> - turn 粒度推理轨迹(会话审查回放)
-      const { buildTurnViewFromPiFile, buildTurnViewFromCcFile, findPiSessionFile, findCcSessionFile } = await import("./monitor/turnView.js");
+      const { buildTurnViewFromPiFile, buildTurnViewFromCcFile, findPiSessionFile, findCcSessionFile } = await import("./core/sessions/turnView.js");
       const id = args[0];
       if (!id) return console.log("用法: hm turns <session-id>");
       const r = await ensureScan();
@@ -187,8 +187,8 @@ async function main(): Promise<void> {
     }
     case "metrics": {
       // hm metrics [<id>] - 性能+可靠性量化指标
-      const { computeMetrics } = await import("./monitor/metrics.js");
-      const { buildTurnViewFromPiFile, buildTurnViewFromCcFile, findPiSessionFile, findCcSessionFile } = await import("./monitor/turnView.js");
+      const { computeMetrics } = await import("./core/sessions/metrics.js");
+      const { buildTurnViewFromPiFile, buildTurnViewFromCcFile, findPiSessionFile, findCcSessionFile } = await import("./core/sessions/turnView.js");
       const r = await ensureScan();
       const id = args[0];
       const targets = id ? r.sessions.filter((s) => s.id.startsWith(id)) : r.sessions;
@@ -222,7 +222,7 @@ async function main(): Promise<void> {
     }
     case "usage": {
       // hm usage — 技能触发统计
-      const { skillUsageStats } = await import("./monitor/usage.js");
+      const { skillUsageStats } = await import("./core/skills/usage.js");
       const stats = skillUsageStats();
       if (useJson) return out(stats);
       console.log(`技能触发统计 (共 ${stats.totalTriggers} 次触发):\n`);
@@ -242,7 +242,7 @@ async function main(): Promise<void> {
     }
     case "registry": {
       // hm registry [rebuild] [resolve <name> <update|keep|ignore>] — 技能注册表管理
-      const { rebuildRegistry, loadRegistry, resolveConflict } = await import("./monitor/registry.js");
+      const { rebuildRegistry, loadRegistry, resolveConflict } = await import("./core/skills/registry.js");
       const repoPath = process.env.HM_REPO_ROOT ?? process.cwd();
       const sub = args[0];
       if (sub === "rebuild") {
@@ -275,7 +275,7 @@ async function main(): Promise<void> {
     }
     case "onboard": {
       // hm onboard — 手动触发：检测新技能 + 询问迁移
-      const { detectNewSkills, migrateNewSkills, saveBaseline, singleSourceNames } = await import("./monitor/onboard.js");
+      const { detectNewSkills, migrateNewSkills, saveBaseline, singleSourceNames } = await import("./core/skills/onboard.js");
       const r = await ensureScan();
       const repoPath = process.env.HM_REPO_ROOT ?? process.cwd();
       const candidates = detectNewSkills(r.resources, repoPath);
@@ -306,7 +306,7 @@ async function main(): Promise<void> {
       const r = await ensureScan();
       if (useJson) return out(r.resources);
       // 按分类分组显示
-      const { categoryOf, CATEGORY_ICON } = await import("./analysis/skillCategories.js");
+      const { categoryOf, CATEGORY_ICON } = await import("./core/skills/skillCategories.js");
       const skills = r.resources.filter((x) => x.kind === "skill" || x.kind === "project-skill");
       const groups = new Map<string, typeof skills>();
       for (const s of skills) {
@@ -360,7 +360,7 @@ async function main(): Promise<void> {
     }
     case "story": {
       // hm story <id> — 执行轨迹 + 思考过程
-      const { buildStory, renderStory } = await import("./analysis/story.js");
+      const { buildStory, renderStory } = await import("./core/sessions/story.js");
       const id = args[0];
       if (!id) return console.log("用法: hm story <session-id>  (执行轨迹+思考过程)");
       const r = await ensureScan();
@@ -422,7 +422,7 @@ async function main(): Promise<void> {
     }
     case "outcome": {
       // hm outcome [sessionId]  — 评估单个或全部会话成效
-      const { evaluateAll, evaluateSession } = await import("./monitor/sessionOutcome.js");
+      const { evaluateAll, evaluateSession } = await import("./core/sessions/sessionOutcome.js");
       const r = await ensureScan();
       const id = args[0];
       if (id) {
@@ -445,7 +445,7 @@ async function main(): Promise<void> {
     }
     case "health": {
       // hm health  — 技能健康监控报告
-      const { assessSkillHealth, healthSummary } = await import("./monitor/skillHealth.js");
+      const { assessSkillHealth, healthSummary } = await import("./core/skills/skillHealth.js");
       const r = await ensureScan();
       const health = assessSkillHealth(r.resources);
       const sum = healthSummary(health);

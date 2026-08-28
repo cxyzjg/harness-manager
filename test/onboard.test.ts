@@ -7,7 +7,7 @@ import {
   detectNewSkills,
   saveBaseline,
   loadBaseline,
-} from "../src/monitor/onboard.js";
+} from "../src/core/skills/onboard.js";
 import { dataDir } from "../src/config.js";
 import type { HarnessResource } from "../src/types.js";
 

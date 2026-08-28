@@ -5,7 +5,7 @@ import {
   buildTimeline,
   contextStats,
   toolStats,
-} from "../src/analysis/stats.js";
+} from "../src/core/sessions/stats.js";
 import type { Session } from "../src/types.js";
 
 const mk = (over: Partial<Session>): Session => ({

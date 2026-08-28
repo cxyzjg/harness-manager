@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { pairSimilarity, semanticDedupe } from "../src/core/skills/semanticDedupe.js";
 import { linkSkillEffects } from "../src/core/skills/effectLink.js";
-import { skillInfo } from "../src/analysis/skillDescriptions.js";
+import { skillInfo } from "../src/core/skills/skillDescriptions.js";
 
 describe("语义去重", () => {
   it("正样本: tdd vs test-driven-development 命中", () => {
