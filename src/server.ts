@@ -94,6 +94,13 @@ const routes: Record<string, (url: URL) => Promise<unknown> | unknown> = {
   },
   "/api/v2/anomalies": () =>
     import("./core/anomaly.js").then(({ detectAnomalies }) => ({ anomalies: detectAnomalies(), at: new Date().toISOString() })),
+  "/api/v2/model-eval": () =>
+    import("./core/modelEval.js").then(({ evaluateModels }) => evaluateModels()),
+  "/api/v2/model-compare": (url) => {
+    const a = url.searchParams.get("a") ?? "";
+    const b = url.searchParams.get("b") ?? "";
+    return import("./core/modelEval.js").then(({ compareModels }) => compareModels(a, b));
+  },
   "/api/v2/configs": () =>
     import("./db/store.js").then(({ listConfigs }) => listConfigs()),
   "/api/v2/config-compare": async (url) => {
