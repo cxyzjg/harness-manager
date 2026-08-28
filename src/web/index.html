@@ -431,11 +431,12 @@ function loadMoreTurns() {
 async function showReview(id) {
   _view = "review";
   toast("加载审查回放…");
-  var pair = await Promise.all([
+  var triple = await Promise.all([
     api("/api/v2/review?id=" + encodeURIComponent(id)),
-    api("/api/v2/summary?id=" + encodeURIComponent(id)).catch(function(){return null;})
+    api("/api/v2/summary?id=" + encodeURIComponent(id)).catch(function(){return null;}),
+    api("/api/v2/context?id=" + encodeURIComponent(id)).catch(function(){return null;})
   ]);
-  var r = pair[0], sum = pair[1];
+  var r = triple[0], sum = triple[1], ctxSeries = triple[2] || [];
   if (!r) return toast("未找到该会话(先点右上角刷新数据同步)");
   var m = (window._v2Fleet) || null;
   var t0 = r.totals;
@@ -482,6 +483,19 @@ async function showReview(id) {
           }).join("") + "</div>") :
         '<p class="muted" style="font-size:11px;margin-top:6px">上下文构成暂无数据(D5 四段拆解依赖 extension config_snapshot 的 usage, 逐步积累)</p>') +
     '</div>' +
+    (function(){
+      if (!ctxSeries.length) return '<div class="panel"><h2>📐 上下文构成演变</h2><p class="muted">暂无上下文快照</p></div>';
+      var bars = ctxSeries.map(function(c){
+        var sp=c.systemPromptTokens||0, hi=c.historyTokens||0, tr=c.toolResultTokens||0, fc=c.fileContentTokens||0;
+        var total=sp+hi+tr+fc; if(total<=0) return "";
+        var seg=function(v,color,label){ return v>0?'<div style="display:inline-block;height:14px;width:'+ (v/total*100).toFixed(1) +'%;background:'+color+'" title="'+label+': '+fmt(v)+' tok ('+(v/total*100).toFixed(0)+'%)"></div>':""; };
+        return '<div style="margin:4px 0"><span class="muted mono" style="font-size:11px">T'+c.turnIdx+'</span>' +
+          '<div style="display:flex;width:100%;border-radius:3px;overflow:hidden">' +
+          seg(sp,'#5db4ff','system prompt')+seg(hi,'#d8c48a','history')+seg(tr,'#3fb950','tool result')+seg(fc,'#d2a8ff','file content')+
+          '</div><span class="muted" style="font-size:10px">≈'+fmt(total)+' tok (sp/历史/工具/文件)</span></div>';
+      }).join("");
+      return '<div class="panel"><h2>📐 上下文构成演变 (每turn四段token占比: 蓝系统提示/黄历史/绿工具返回/紫文件)</h2>'+bars+'</div>';
+    })() +
     '<div class="panel"><h2>审查回放 — '+esc(r.session.harness)+' · '+esc((r.session.started_at||"").slice(0,16))+' · '+esc(r.session.cwd||"")+(r.session.degraded?' <span class="tag red">部分数据降级</span>':"")+'</h2>' +
     '<p class="muted" style="font-size:12px">每 turn 展示: 用户输入 → 💭思考(为什么) → 🛠工具(做什么,含耗时/错误) → agent 当时所见上下文构成</p></div>' +
     '<div id="turns-body" style="max-height:70vh;overflow:auto">'+first+moreBtn+"</div>";

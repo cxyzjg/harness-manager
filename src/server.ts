@@ -78,6 +78,17 @@ const routes: Record<string, (url: URL) => Promise<unknown> | unknown> = {
       const stats = perSessionStats();
       return listSessions().map((s) => ({ ...s, stats: stats[s.id] ?? { turns: 0, tools: 0, thinking: 0, tokensIn: 0, tokensOut: 0 } }));
     }),
+  "/api/v2/context": (url) => {
+    // 上下文管理视图: 每turn四段token构成演变(先估算回填再读)
+    const id = url.searchParams.get("id") ?? "";
+    return import("./db/reviewQuery.js").then(async ({ resolveSessionId }) => {
+      const full = resolveSessionId(id);
+      if (!full) return null;
+      const { estimateContextForSession, contextTimeline } = await import("./db/contextEstimator.js");
+      estimateContextForSession(full);
+      return contextTimeline(full);
+    });
+  },
   "/api/v2/review": (url) => {
     const id = url.searchParams.get("id") ?? "";
     return import("./db/reviewQuery.js").then(({ buildReviewFromDb }) => buildReviewFromDb(id));

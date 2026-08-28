@@ -31,7 +31,7 @@ export interface SessionReview {
 }
 
 /** 组装一个会话的完整审查视图 */
-export function buildReviewFromDb(sessionId: string): SessionReview | null {
+export async function buildReviewFromDb(sessionId: string): Promise<SessionReview | null> {
   const fullId = resolveSessionId(sessionId);
   if (!fullId) return null;
   const session = getSession(fullId);
@@ -84,8 +84,10 @@ export function buildReviewFromDb(sessionId: string): SessionReview | null {
     };
   });
 
-  // v2.1: 配置快照 + 上下文构成
-  const ctxSnaps = getContextSnapshots(session.id);
+  // v2.1: 配置快照 + 上下文构成(无则本地估算回填)
+  const { estimateContextForSession } = await import("./contextEstimator.js");
+  estimateContextForSession(fullId);
+  const ctxSnaps = getContextSnapshots(fullId);
   const agentConfig = (session as UnifiedSession & { agent_config_ref?: string }).agent_config_ref
     ? getAgentConfig((session as UnifiedSession & { agent_config_ref?: string }).agent_config_ref!)
     : null;
