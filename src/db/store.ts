@@ -229,8 +229,8 @@ function stringify(v: unknown): string | null {
 // ---------- 查询 API ----------
 export function listSessions(harness?: string): UnifiedSession[] {
   const rows = harness
-    ? getDb().prepare("SELECT * FROM sessions WHERE harness=? ORDER BY started_at DESC").all(harness)
-    : getDb().prepare("SELECT * FROM sessions ORDER BY started_at DESC").all();
+    ? getDb().prepare("SELECT * FROM sessions WHERE harness=? ORDER BY COALESCE(ended_at, started_at) DESC").all(harness)
+    : getDb().prepare("SELECT * FROM sessions ORDER BY COALESCE(ended_at, started_at) DESC").all();
   return (rows as Record<string, unknown>[]).map(rowToSession);
 }
 
