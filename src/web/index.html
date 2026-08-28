@@ -382,11 +382,21 @@ function setSessSort(mode) {
   _sessSort = mode;
   loadSessionsPage();
 }
+var _sessFingerprint = ""; // 数据指纹, 无变化不重渲染(防轮询闪烁)
+var _sessView = "flat"; // flat=列表 / group=按项目分组
 async function loadSessionsPage() {
   _view = "sessions";
   var pair = await Promise.all([api("/api/v2/sessions?sort=" + _sessSort), api("/api/v2/fleet")]);
   var list = pair[0] || [];
   var fleet = pair[1] || {};
+  // 指纹防闪: 无变化跳过重渲染
+  var fp = _sessSort + "|" + _sessView + "|" + list.length + "|" + ((list[0] && list[0].ended_at) || "");
+  if (fp === _sessFingerprint && document.getElementById("sess-table")) {
+    document.querySelectorAll(".sort-btn").forEach(function(x){ x.classList.toggle("active-tab", x.dataset.sort === _sessSort); });
+    document.querySelectorAll(".view-btn").forEach(function(x){ x.classList.toggle("active-tab", x.dataset.view === _sessView); });
+    return;
+  }
+  _sessFingerprint = fp;
   var rows = list.slice(0,80).map(function(s){
     var st = s.stats || {};
     var degradedTag = s.degraded ? ' <span class="tag red">降级</span>' : "";
@@ -402,15 +412,56 @@ async function loadSessionsPage() {
   }).join("");
   var sb = document.querySelectorAll(".sort-btn");
     sb.forEach(function(x){ x.classList.toggle("active-tab", x.dataset.sort === _sessSort); });
+    var viewBtns =
+      '<span class="muted" style="font-size:12px;margin-left:8px">视图:</span>' +
+      '<button class="op view-btn" data-view="flat">列表</button>' +
+      '<button class="op view-btn" data-view="group">📁 按项目</button>';
+    var tableHtml;
+    if (_sessView === "group") {
+      var byProject = {};
+      list.forEach(function(s){
+        var key = (s.cwd || "(unknown)").replace(/[\/]+$/, "");
+        (byProject[key] = byProject[key] || []).push(s);
+      });
+      var keys = Object.keys(byProject).sort(function(a,b){
+        var ma = Math.max.apply(null, byProject[a].map(function(x){return new Date(x.ended_at||x.started_at||0).getTime();}));
+        var mb = Math.max.apply(null, byProject[b].map(function(x){return new Date(x.ended_at||x.started_at||0).getTime();}));
+        return mb - ma;
+      });
+      tableHtml = keys.map(function(k){
+        var sess = byProject[k];
+        var gid = "pg_" + k.replace(/[^a-zA-Z0-9]/g, "_");
+        var totTok = sess.reduce(function(a,s2){ var st2=s2.stats||{}; return a + (st2.tokensIn||0)+(st2.tokensOut||0); }, 0);
+        return '<div class="panel" style="padding:8px 12px;margin-bottom:8px">' +
+          '<div style="cursor:pointer" onclick="toggleProjectGroup(\'' + gid + '\')">' +
+          '<b>📁 ' + esc(k) + '</b> <span class="muted" style="font-size:12px">' + sess.length + ' 会话 · ' + fmt(totTok) + ' token</span></div>' +
+          '<div id="' + gid + '" style="display:none;margin-top:6px">' +
+          sess.map(function(s2){ var st2=s2.stats||{};
+            return '<div style="font-size:12px;margin:3px 0 3px 12px">' +
+            '<a href="#" onclick="showReview(\''+esc(s2.id)+'\');return false;" class="mono">' + esc(s2.id.slice(s2.id.indexOf(":")+1)) + '</a>' +
+            ' <span class="muted">' + esc((s2.started_at||"").slice(0,10)) + ' · ' + (st2.turns||0) + 't/' + (st2.tools||0) + '🛠 · ' + fmt((st2.tokensIn||0)+(st2.tokensOut||0)) + ' tok</span></div>'; }).join("") +
+          '</div></div>';
+      }).join("");
+    } else {
+      tableHtml = '<table id="sess-table"><thead><tr><th>id</th><th>harness</th><th>日期</th><th>turn/工具/思考</th><th>token</th><th>模型</th><th>项目</th></tr></thead><tbody>' + (rows || '<tr><td colspan="7" class="muted">暂无。点击右上"🔄刷新数据"</td></tr>') + '</tbody></table>';
+    }
     $("#content").innerHTML =
-    '<div class="panel"><h2>会话历史 (统一库: '+list.length+' 会话 · 全局等级 <span class="tag yellow">'+(fleet.globalGrade||"-")+'</span> · 错误率 '+(fleet.errorRate*100).toFixed(1)+'% · 每2分钟自动同步)</h2>' +
+    '<div class="panel"><h2>会话历史 (统一库: '+list.length+' 会话 · 全局等级 <span class="tag yellow">'+(fleet.globalGrade||"-")+'</span> · 错误率 '+(fleet.errorRate*100).toFixed(1)+'%)</h2>' +
       '<div style="margin:6px 0;display:flex;gap:6px;align-items:center">' +
         '<span class="muted" style="font-size:12px">排序:</span>' +
         '<button class="op sort-btn" data-sort="active">🟢 最后活跃</button>' +
         '<button class="op sort-btn" data-sort="started">🕐 开始时间</button>' +
         '<button class="op sort-btn" data-sort="tokens">💰 token消耗</button>' +
+        '<span class="muted" style="font-size:12px;margin-left:8px">视图:</span>' +
+        '<button class="op view-btn" data-view="flat">列表</button>' +
+        '<button class="op view-btn" data-view="group">📁 按项目</button>' +
       '</div>' +
-      '<table><thead><tr><th>id</th><th>harness</th><th>日期</th><th>turn/工具/思考</th><th>token</th><th>模型</th><th>项目</th></tr></thead><tbody>'+(rows || '<tr><td colspan="7" class="muted">暂无。点击右上"🔄刷新数据"</td></tr>')+'</tbody></table></div>';
+      tableHtml + '</div>';
+  document.querySelectorAll(".view-btn").forEach(function(x){ x.classList.toggle("active-tab", x.dataset.view === _sessView); });
+}
+function toggleProjectGroup(gid) {
+  var el = document.getElementById(gid);
+  if (el) el.style.display = el.style.display === "none" ? "block" : "none";
 }
 
 var _reviewData = null; // 当前审查回放数据(分批渲染)
@@ -473,23 +524,33 @@ async function showReview(id) {
       '<button class="op" id="tab-context" onclick="rvTab(\'context\')">📐 上下文</button>' +
       '<button class="op" id="tab-config" onclick="rvTab(\'config\')">⚙ 配置</button>' +
     '</div>' +
-    '<div id="rv-body"></div>';
+    '<div id="rv-body" style="max-height:75vh;overflow-y:auto"></div>';
   $("#content").innerHTML = hdr;
   rvTab("overview");
 }
 
+window._rvScroll = {}; // 各tab滚动位置
+window._rvCurTab = null;
 function rvTab(tab) {
   var v = window._rv;
   if (!v) return;
+  // 保存离开的tab滚动位置
+  var cur = document.getElementById("rv-body");
+  if (cur && window._rvCurTab) window._rvScroll[window._rvCurTab] = cur.scrollTop;
   ["overview","replay","context","config"].forEach(function(t){
     var el = document.getElementById("tab-"+t);
     if (el) el.classList.toggle("active-tab", t === tab);
   });
-  var body = document.getElementById("rv-body");
-  if (tab === "overview") return rvOverview(v);
-  if (tab === "replay") return rvReplay(v);
-  if (tab === "context") return rvContext(v);
-  if (tab === "config") return rvConfig(v);
+  window._rvCurTab = tab;
+  if (tab === "overview") rvOverview(v);
+  else if (tab === "replay") rvReplay(v);
+  else if (tab === "context") rvContext(v);
+  else if (tab === "config") rvConfig(v);
+  // 恢复滚动位置
+  requestAnimationFrame(function(){
+    var body = document.getElementById("rv-body");
+    if (body) body.scrollTop = window._rvScroll[tab] || 0;
+  });
 }
 
 /* ---- 概览 ---- */
