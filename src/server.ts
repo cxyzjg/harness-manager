@@ -16,7 +16,7 @@ import { readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { loadConfig, ensureDataDir } from "./config.js";
 import { scan } from "./orchestrator.js";
-import { loadCache, saveCache } from "./storage.js";
+import { buildLegacyShape, saveResources } from "./db/store.js";
 import { detectDupes } from "./analysis/dedupe.js";
 import { aggregateTokens, contextStats, toolStats } from "./analysis/stats.js";
 import { buildCallTree } from "./analysis/calltree.js";
@@ -27,7 +27,7 @@ import { assessSkillHealth, healthSummary } from "./monitor/skillHealth.js";
 
 const htmlPath = join(repoRoot, "src", "web", "index.html");
 
-let cached = loadCache();
+let cached = buildLegacyShape();
 
 function json(res: ServerResponse, data: unknown, status = 200): void {
   res.writeHead(status, { "Content-Type": "application/json; charset=utf-8" });
@@ -35,9 +35,10 @@ function json(res: ServerResponse, data: unknown, status = 200): void {
 }
 
 async function ensureData(): Promise<void> {
-  if (!cached) {
-    cached = await scan();
-    saveCache(cached);
+  if (!cached || !cached.resources.length) {
+    const r = await scan();
+    saveResources(r.resources);
+    cached = buildLegacyShape();
   }
 }
 
@@ -329,9 +330,10 @@ export function startServer(): void {
             ? candidates.filter((c) => payload.names!.includes(c.name))
             : candidates;
           const migrated = await migrateNewSkills(toMigrate, repoRoot);
-          // 重扫更新缓存
-          cached = await scan();
-          saveCache(cached);
+          // 重扫更新数据(SQLite)
+          const rr2 = await scan();
+          saveResources(rr2.resources);
+          cached = buildLegacyShape();
           saveBaseline(singleSourceNames(repoRoot));
           return json(res, { migrated, candidates });
         }
@@ -406,8 +408,9 @@ export function startServer(): void {
         }
         // 手动刷新: 立即重扫(新会话/新技能立即可见)
         if (path === "/api/rescan" && req.method === "POST") {
-          cached = await scan();
-          saveCache(cached);
+          const rr = await scan();
+          saveResources(rr.resources);
+          cached = buildLegacyShape();
           // 同步入统一库(SQLite)
           const { runIngest } = await import("./db/ingest.js");
           const report = runIngest();
@@ -451,10 +454,10 @@ export function startServer(): void {
     }
   });
 
-  // 启动即全量重扫(不信任旧缓存, 确保最新会话可见)
+  // 启动即全量重扫: 资源入SQLite, 会话由ingest统一处理
   scan().then((r) => {
-    cached = r;
-    saveCache(r);
+    saveResources(r.resources);
+    cached = buildLegacyShape();
     console.log(`\u2713 \u542f\u52a8\u91cd\u626b: ${r.sessions.length} \u4f1a\u8bdd / ${r.resources.length} \u8d44\u6e90`);
   }).catch(() => {});
 
@@ -479,8 +482,8 @@ export function startServer(): void {
   setInterval(async () => {
     try {
       const r = await scan();
-      cached = r;
-      saveCache(r);
+      saveResources(r.resources);
+      cached = buildLegacyShape();
       // v2.1 增量回填(错误/配置)
       const { backfillErrors } = await import("./db/errorBackfill.js");
       backfillErrors();

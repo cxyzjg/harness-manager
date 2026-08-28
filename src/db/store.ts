@@ -114,6 +114,20 @@ function migrate(d: Database.Database): void {
     );
     CREATE INDEX IF NOT EXISTS idx_ctxsnap_turn ON context_snapshots(turn_id);
   `);
+  d.exec(`
+    CREATE TABLE IF NOT EXISTS resources (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      source TEXT NOT NULL,
+      scope TEXT NOT NULL,
+      path TEXT,
+      status TEXT NOT NULL,
+      description TEXT,
+      UNIQUE(name, kind, source, scope)
+    );
+    CREATE INDEX IF NOT EXISTS idx_resources_kind ON resources(kind);
+  `);
   for (const stmt of [
     "ALTER TABLE sessions ADD COLUMN agent_config_ref TEXT",
     "ALTER TABLE turns ADD COLUMN config_ref TEXT",
@@ -339,6 +353,7 @@ export function perSessionStats(): Record<string, { turns: number; tools: number
 // ---------- v2.1: agent配置快照与上下文构成 ----------
 import { createHash } from "node:crypto";
 import type { AgentConfig, ContextSnapshot } from "../core/schema.js";
+import type { ScanResult } from "../types.js";
 
 /** 内容hash -> 稳定config id (同内容=同版本) */
 export function agentConfigId(harness: string, content: string): { id: string; hash: string } {
@@ -449,6 +464,42 @@ export function getContextSnapshots(sessionId: string): (ContextSnapshot & { tur
   }));
 }
 
+/** 技能资源入库(scan结果, 全量替换) */
+export function saveResources(resources: {
+  id: string; name: string; kind: string; source: string; scope: string;
+  path?: string; status: string; description?: string;
+}[]): void {
+  const d = getDb();
+  const tx = d.transaction(() => {
+    d.prepare("DELETE FROM resources").run();
+    const ins = d.prepare(`INSERT OR REPLACE INTO resources (id,name,kind,source,scope,path,status,description)
+                           VALUES (@id,@name,@kind,@source,@scope,@path,@status,@description)`);
+    for (const r of resources) {
+      ins.run({
+        id: r.id, name: r.name, kind: r.kind, source: r.source, scope: r.scope,
+        path: r.path ?? null, status: r.status, description: r.description ?? null,
+      });
+    }
+  });
+  tx();
+}
+
+export function listResources(): {
+  id: string; name: string; kind: string; source: string; scope: string;
+  path?: string; status: string; description?: string;
+}[] {
+  return (getDb().prepare("SELECT * FROM resources ORDER BY kind, name").all() as Record<string, unknown>[]).map((r) => ({
+    id: r.id as string,
+    name: r.name as string,
+    kind: r.kind as string,
+    source: r.source as string,
+    scope: r.scope as string,
+    path: (r.path as string) ?? undefined,
+    status: r.status as string,
+    description: (r.description as string) ?? undefined,
+  }));
+}
+
 export function globalStats(): { sessions: number; turns: number; tools: number; errors: number; byHarness: Record<string, number> } {
   const d = getDb();
   const one = (sql: string): number => (d.prepare(sql).get() as { n: number }).n;
@@ -472,4 +523,40 @@ function safeJson(s: string | null): unknown {
   } catch {
     return s;
   }
+}
+
+// ---------- v3: SQLite 单一事实源(组装旧 ScanResult 形状, 供存量 UI/API 过渡) ----------
+
+/** 从 SQLite 组装旧 ScanResult 形状(资源+会话+工具链), 替代 cache.json */
+export function buildLegacyShape(): ScanResult {
+  const d = getDb();
+  const resources = listResources();
+  const stats = perSessionStats();
+  const sessions = listSessions().map((s) => {
+    const st = stats[s.id] ?? { turns: 0, tools: 0, thinking: 0, tokensIn: 0, tokensOut: 0 };
+    const tools = d
+      .prepare("SELECT id, name, input, output, started_at, ended_at, duration_ms, is_error FROM tool_calls WHERE session_id=? ORDER BY started_at")
+      .all(s.id) as Record<string, unknown>[];
+    return {
+      id: s.id,
+      harness: s.harness,
+      cwd: s.cwd,
+      startedAt: s.started_at,
+      endedAt: s.ended_at,
+      model: s.model,
+      messages: (d.prepare("SELECT COUNT(*) n FROM turns WHERE session_id=?").get(s.id) as { n: number }).n,
+      tools: tools.map((tc) => ({
+        id: tc.id as string,
+        name: tc.name as string,
+        input: safeJson(tc.input as string),
+        output: safeJson(tc.output as string),
+        startedAt: (tc.started_at as string) ?? undefined,
+        endedAt: (tc.ended_at as string) ?? undefined,
+        durationMs: (tc.duration_ms as number) ?? undefined,
+        error: tc.is_error ? "error" : undefined,
+      })),
+      tokenUsage: st.tokensIn + st.tokensOut > 0 ? { input: st.tokensIn, output: st.tokensOut, total: st.tokensIn + st.tokensOut } : undefined,
+    } as never;
+  }) as never;
+  return { resources, sessions, memories: [], errors: [] } as unknown as ScanResult;
 }

@@ -13,7 +13,7 @@
  *   hm serve                    # 启动 Web 服务（M3）
  */
 import { scan } from "./orchestrator.js";
-import { loadCache, saveCache } from "./storage.js";
+import { buildLegacyShape, saveResources } from "./db/store.js";
 import { readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
@@ -30,10 +30,11 @@ function out(obj: unknown): void {
 }
 
 async function ensureScan(): Promise<ScanResult> {
-  const cached = loadCache();
-  if (cached) return cached;
+  // 从 SQLite 组装(单一事实源); 无数据则扫描入库
+  const fromDb = buildLegacyShape();
+  if (fromDb.sessions.length || fromDb.resources.length) return fromDb;
   const fresh = await scan();
-  saveCache(fresh);
+  saveResources(fresh.resources);
   return fresh;
 }
 
@@ -46,7 +47,9 @@ async function main(): Promise<void> {
   switch (cmd) {
     case "scan": {
       const r = await scan();
-      saveCache(r);
+      saveResources(r.resources);
+      const { runIngest } = await import("./db/ingest.js");
+      runIngest();
       console.log(
         `✓ 扫描完成: ${r.resources.length} 资源, ${r.sessions.length} 会话, ${r.memories.length} 记忆, ${r.errors.length} 错误`
       );
@@ -292,7 +295,9 @@ async function main(): Promise<void> {
       migrated.forEach((m) => console.log(`  • ${m}`));
       // 重新扫描以更新缓存
       const r2 = await scan();
-      saveCache(r2);
+      saveResources(r2.resources);
+      const { runIngest } = await import("./db/ingest.js");
+      runIngest();
       saveBaseline(singleSourceNames(repoPath));
       console.log(`\n✓ 缓存已更新，单源共享现有 ${singleSourceNames(repoPath).size} 个技能`);
       break;
@@ -572,10 +577,12 @@ async function main(): Promise<void> {
     case "serve":
       {
         const { startServer } = await import("./server.js");
-        // 确保数据已扫描
+        // 确保数据已扫描入库(SQLite单一源)
         const r = await scan();
-        saveCache(r);
-        console.log(`✓ 已加载 ${r.resources.length} 资源, ${r.sessions.length} 会话`);
+        saveResources(r.resources);
+        const { runIngest } = await import("./db/ingest.js");
+        runIngest();
+        console.log(`✓ 已加载 ${r.resources.length} 资源`);
         startServer();
       }
       break;
