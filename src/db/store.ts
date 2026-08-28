@@ -397,6 +397,33 @@ export function saveContextSnapshot(s: ContextSnapshot): void {
     });
 }
 
+/** 列出全部配置版本 + 关联会话数 */
+export function listConfigs(): (AgentConfig & { sessionCount: number })[] {
+  const rows = getDb()
+    .prepare(`SELECT ac.*, (SELECT COUNT(*) FROM sessions s WHERE s.agent_config_ref = ac.id) AS sessionCount
+              FROM agent_configs ac ORDER BY ac.created_at DESC`)
+    .all() as Record<string, unknown>[];
+  return rows.map((r) => ({
+    id: r.id as string,
+    harness: r.harness as AgentConfig["harness"],
+    version_hash: r.version_hash as string,
+    system_prompt: (r.system_prompt as string) ?? "",
+    model: (r.model as string) ?? undefined,
+    thinking_level: (r.thinking_level as string) ?? undefined,
+    allowed_tools: safeJson(r.allowed_tools as string) as string[] | undefined,
+    skills_loaded: safeJson(r.skills_loaded as string) as string[] | undefined,
+    created_at: (r.created_at as string) ?? undefined,
+    sessionCount: (r.sessionCount as number) ?? 0,
+  }));
+}
+
+/** 某配置关联的全部会话(用于成效对比) */
+export function sessionsOfConfig(configId: string): string[] {
+  return (getDb().prepare("SELECT id FROM sessions WHERE agent_config_ref=?").all(configId) as { id: string }[]).map(
+    (r) => r.id
+  );
+}
+
 export function getContextSnapshots(sessionId: string): (ContextSnapshot & { turn_idx?: number })[] {
   const rows = getDb()
     .prepare(`SELECT cs.* FROM context_snapshots cs

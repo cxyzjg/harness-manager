@@ -94,6 +94,18 @@ const routes: Record<string, (url: URL) => Promise<unknown> | unknown> = {
   },
   "/api/v2/anomalies": () =>
     import("./core/anomaly.js").then(({ detectAnomalies }) => ({ anomalies: detectAnomalies(), at: new Date().toISOString() })),
+  "/api/v2/configs": () =>
+    import("./db/store.js").then(({ listConfigs }) => listConfigs()),
+  "/api/v2/config-compare": async (url) => {
+    const a = url.searchParams.get("a") ?? "";
+    const b = url.searchParams.get("b") ?? "";
+    if (!a || !b) return { error: "需要 a/b 两个配置id" };
+    const { compareConfigs } = await import("./core/configCompare.js");
+    const { evaluateAll } = await import("./monitor/sessionOutcome.js");
+    const outcomes = evaluateAll(cached?.sessions ?? []);
+    const outcomeOf = new Map(outcomes.map((o) => [o.sessionId, o.score]));
+    return compareConfigs(a, b, outcomeOf);
+  },
   "/api/v2/skill-effects": async () => {
     const [{ linkSkillEffects }, { assessSkillHealth }] = await Promise.all([
       import("./core/skills/effectLink.js"),
@@ -431,6 +443,15 @@ export function startServer(): void {
     .then(({ runIngest }) => {
       const rep = runIngest();
       console.log(`\u2713 \u7edf\u4e00\u5e93\u540c\u6b65: ${rep.stats.sessions} \u4f1a\u8bdd(${rep.harnesses.join("+")}), \u5931\u8d25${rep.failed}`);
+      // v2.1: 配置快照回填(等统一库就绪后再跑, 关联需要sessions表)
+      return import("./db/errorBackfill.js").then(({ backfillErrors }) => {
+        const bf = backfillErrors();
+        if (bf.errorsFound) console.log(`\u2713 \u9519\u8bef\u56de\u586b: ${bf.updated} \u6761`);
+        return import("./db/configBackfill.js");
+      }).then(({ backfillConfigs }) => {
+        const cf = backfillConfigs();
+        if (cf.snapshots) console.log(`\u2713 \u914d\u7f6e\u5feb\u7167: ${cf.snapshots} \u4e8b\u4ef6 / ${cf.configs} \u7248\u672c / \u5173\u8054${cf.linked}`);
+      });
     })
     .catch(() => {});
 
@@ -440,6 +461,11 @@ export function startServer(): void {
       const r = await scan();
       cached = r;
       saveCache(r);
+      // v2.1 增量回填(错误/配置)
+      const { backfillErrors } = await import("./db/errorBackfill.js");
+      backfillErrors();
+      const { backfillConfigs } = await import("./db/configBackfill.js");
+      backfillConfigs();
     } catch { /* 静默 */ }
   }, Math.max(30_000, cfg.scanIntervalMs));
 
