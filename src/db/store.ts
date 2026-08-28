@@ -89,6 +89,41 @@ function migrate(d: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_tools_session ON tool_calls(session_id);
     CREATE INDEX IF NOT EXISTS idx_tools_name ON tool_calls(name);
   `);
+
+  // ---- v2.1 增量迁移(可重复执行: CREATE IF NOT EXISTS + ALTER用try-catch容剾重复列) ----
+  d.exec(`
+    CREATE TABLE IF NOT EXISTS agent_configs (
+      id TEXT PRIMARY KEY,
+      harness TEXT NOT NULL,
+      version_hash TEXT NOT NULL,
+      system_prompt TEXT,
+      model TEXT,
+      thinking_level TEXT,
+      allowed_tools TEXT,
+      skills_loaded TEXT,
+      created_at TEXT
+    );
+    CREATE TABLE IF NOT EXISTS context_snapshots (
+      turn_id TEXT PRIMARY KEY,
+      system_prompt_tokens INTEGER,
+      history_tokens INTEGER,
+      tool_result_tokens INTEGER,
+      file_content_tokens INTEGER,
+      memory_entries_used TEXT,
+      snapshot_at TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_ctxsnap_turn ON context_snapshots(turn_id);
+  `);
+  for (const stmt of [
+    "ALTER TABLE sessions ADD COLUMN agent_config_ref TEXT",
+    "ALTER TABLE turns ADD COLUMN config_ref TEXT",
+  ]) {
+    try {
+      d.exec(stmt);
+    } catch {
+      /* 列已存在 */
+    }
+  }
 }
 
 /** 导入一个适配器结果: 先删旧(按session)再插, 幂等 */
@@ -290,6 +325,92 @@ export function perSessionStats(): Record<string, { turns: number; tools: number
     o.tokensOut = r.o ?? 0;
   }
   return out;
+}
+
+// ---------- v2.1: agent配置快照与上下文构成 ----------
+import { createHash } from "node:crypto";
+import type { AgentConfig, ContextSnapshot } from "../core/schema.js";
+
+/** 内容hash -> 稳定config id (同内容=同版本) */
+export function agentConfigId(harness: string, content: string): { id: string; hash: string } {
+  const hash = createHash("sha256").update(content).digest("hex").slice(0, 12);
+  return { id: `cfg_${harness}_${hash}`, hash };
+}
+
+/** 保存/更新配置快照(幂等, 同id覆盖) */
+export function saveAgentConfig(cfg: AgentConfig): void {
+  getDb()
+    .prepare(`INSERT OR REPLACE INTO agent_configs (id,harness,version_hash,system_prompt,model,thinking_level,allowed_tools,skills_loaded,created_at)
+              VALUES (@id,@harness,@version_hash,@system_prompt,@model,@thinking_level,@allowed_tools,@skills_loaded,@created_at)`)
+    .run({
+      id: cfg.id,
+      harness: cfg.harness,
+      version_hash: cfg.version_hash,
+      system_prompt: cfg.system_prompt ?? null,
+      model: cfg.model ?? null,
+      thinking_level: cfg.thinking_level ?? null,
+      allowed_tools: cfg.allowed_tools ? JSON.stringify(cfg.allowed_tools) : null,
+      skills_loaded: cfg.skills_loaded ? JSON.stringify(cfg.skills_loaded) : null,
+      created_at: cfg.created_at ?? new Date().toISOString(),
+    });
+}
+
+export function getAgentConfig(id: string): AgentConfig | null {
+  const r = getDb().prepare("SELECT * FROM agent_configs WHERE id=?").get(id) as Record<string, unknown> | undefined;
+  if (!r) return null;
+  return {
+    id: r.id as string,
+    harness: r.harness as AgentConfig["harness"],
+    version_hash: r.version_hash as string,
+    system_prompt: (r.system_prompt as string) ?? "",
+    model: (r.model as string) ?? undefined,
+    thinking_level: (r.thinking_level as string) ?? undefined,
+    allowed_tools: safeJson(r.allowed_tools as string) as string[] | undefined,
+    skills_loaded: safeJson(r.skills_loaded as string) as string[] | undefined,
+    created_at: (r.created_at as string) ?? undefined,
+  };
+}
+
+/** 会话绑定配置 */
+export function linkSessionConfig(sessionId: string, configId: string): void {
+  getDb().prepare("UPDATE sessions SET agent_config_ref=? WHERE id=?").run(configId, sessionId);
+}
+
+/** turn绑定配置 */
+export function linkTurnConfig(turnId: string, configId: string): void {
+  getDb().prepare("UPDATE turns SET config_ref=? WHERE id=?").run(configId, turnId);
+}
+
+/** 保存turn上下文快照(幂等) */
+export function saveContextSnapshot(s: ContextSnapshot): void {
+  getDb()
+    .prepare(`INSERT OR REPLACE INTO context_snapshots (turn_id,system_prompt_tokens,history_tokens,tool_result_tokens,file_content_tokens,memory_entries_used,snapshot_at)
+              VALUES (@turn_id,@system_prompt_tokens,@history_tokens,@tool_result_tokens,@file_content_tokens,@memory_entries_used,@snapshot_at)`)
+    .run({
+      turn_id: s.turn_id,
+      system_prompt_tokens: s.system_prompt_tokens ?? null,
+      history_tokens: s.history_tokens ?? null,
+      tool_result_tokens: s.tool_result_tokens ?? null,
+      file_content_tokens: s.file_content_tokens ?? null,
+      memory_entries_used: s.memory_entries_used ? JSON.stringify(s.memory_entries_used) : null,
+      snapshot_at: s.snapshot_at ?? new Date().toISOString(),
+    });
+}
+
+export function getContextSnapshots(sessionId: string): (ContextSnapshot & { turn_idx?: number })[] {
+  const rows = getDb()
+    .prepare(`SELECT cs.* FROM context_snapshots cs
+              JOIN turns t ON t.id = cs.turn_id WHERE t.session_id=? ORDER BY t.idx`)
+    .all(sessionId) as Record<string, unknown>[];
+  return rows.map((r) => ({
+    turn_id: r.turn_id as string,
+    system_prompt_tokens: (r.system_prompt_tokens as number) ?? undefined,
+    history_tokens: (r.history_tokens as number) ?? undefined,
+    tool_result_tokens: (r.tool_result_tokens as number) ?? undefined,
+    file_content_tokens: (r.file_content_tokens as number) ?? undefined,
+    memory_entries_used: safeJson(r.memory_entries_used as string) as string[] | undefined,
+    snapshot_at: (r.snapshot_at as string) ?? undefined,
+  }));
 }
 
 export function globalStats(): { sessions: number; turns: number; tools: number; errors: number; byHarness: Record<string, number> } {

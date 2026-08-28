@@ -4,7 +4,7 @@
  *
  * 与旧 turnView(每次重解析JSONL)不同, 这里全部走SQL索引, 大库不再卡顿。
  */
-import { getDb, getTurns, getToolCalls, getThinkings, getSession, listSessions } from "./store.js";
+import { getDb, getTurns, getToolCalls, getThinkings, getSession, listSessions, getContextSnapshots, getAgentConfig } from "./store.js";
 import type { Turn, ThinkingBlock, ToolCallRecord, UnifiedSession } from "../core/schema.js";
 
 /** 前缀 -> 完整session_id */
@@ -26,6 +26,8 @@ export interface SessionReview {
   session: UnifiedSession;
   totals: { turns: number; tools: number; thinkingBlocks: number; tokensIn: number; tokensOut: number };
   turns: ReviewTurn[];
+  agentConfig?: import("../core/schema.js").AgentConfig | null;  // v2.1 会话配置快照
+  contextSnapshots?: (import("../core/schema.js").ContextSnapshot & { turn_idx?: number })[]; // v2.1
 }
 
 /** 组装一个会话的完整审查视图 */
@@ -82,6 +84,12 @@ export function buildReviewFromDb(sessionId: string): SessionReview | null {
     };
   });
 
+  // v2.1: 配置快照 + 上下文构成
+  const ctxSnaps = getContextSnapshots(session.id);
+  const agentConfig = (session as UnifiedSession & { agent_config_ref?: string }).agent_config_ref
+    ? getAgentConfig((session as UnifiedSession & { agent_config_ref?: string }).agent_config_ref!)
+    : null;
+
   return {
     session,
     totals: {
@@ -92,6 +100,8 @@ export function buildReviewFromDb(sessionId: string): SessionReview | null {
       tokensOut: costRow?.o ?? 0,
     },
     turns: reviewTurns,
+    agentConfig,
+    contextSnapshots: ctxSnaps,
   };
 }
 

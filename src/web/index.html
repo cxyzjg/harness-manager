@@ -447,6 +447,24 @@ async function showReview(id) {
               '<p class="muted" style="font-size:12px">动作: ' + (sum.actions?'写'+sum.actions.write+' · 读'+sum.actions.read+' · 执行'+sum.actions.exec+' · 检索'+sum.actions.search+' · 规划'+sum.actions.plan:'-') + '</p>' +
               (sum.touchedFiles&&sum.touchedFiles.length?'<p class="muted" style="font-size:12px">改动文件 ('+sum.touchedFiles.length+'): '+esc(sum.touchedFiles.slice(0,6).join(" · "))+(sum.touchedFiles.length>6?" …":"")+'</p>':"")) : '<p class="muted">暂无摘要</p>') +
     '</div>' +
+    '<div class="panel" style="border-left:3px solid var(--green)">' +
+      '<h2>⚙ Agent 配置快照 (本会话)</h2>' +
+      (r.agentConfig ?
+        ('<p class="muted" style="font-size:12px;margin:4px 0">版本 <code>' + esc(r.agentConfig.version_hash) + '</code>' +
+          (r.agentConfig.model ? ' · 模型 ' + esc(r.agentConfig.model) : "") +
+          ' · 技能 ' + ((r.agentConfig.skills_loaded||[]).length) + ' 个' +
+          ' · 工具 ' + ((r.agentConfig.allowed_tools||[]).length) + ' 个' +
+          ' · system prompt ' + esc(String((r.agentConfig.system_prompt||"").length)) + ' 字符</p>') :
+        '<p class="muted" style="font-size:12px">无配置快照(重启 pi 会话后 extension 记录 config_snapshot 事件自动生成)</p>') +
+      (r.contextSnapshots && r.contextSnapshots.length ?
+        ('<div style="margin-top:8px">' +
+          r.contextSnapshots.slice(0, 3).map(function(cs){
+            var sp = cs.system_prompt_tokens || 0;
+            return '<div style="margin:4px 0"><span class="muted" style="font-size:11px">turn 上下文: system prompt ≈ ' + fmt(sp) + ' tok</span>' +
+              (sp ? '<div class="bar"><div style="width:100%;background:var(--green)"></div></div>' : "") + "</div>";
+          }).join("") + "</div>") :
+        '<p class="muted" style="font-size:11px;margin-top:6px">上下文构成暂无数据(D5 四段拆解依赖 extension config_snapshot 的 usage, 逐步积累)</p>') +
+    '</div>' +
     '<div class="panel"><h2>审查回放 — '+esc(r.session.harness)+' · '+esc((r.session.started_at||"").slice(0,16))+' · '+esc(r.session.cwd||"")+(r.session.degraded?' <span class="tag red">部分数据降级</span>':"")+'</h2>' +
     '<p class="muted" style="font-size:12px">每 turn 展示: 用户输入 → 💭思考(为什么) → 🛠工具(做什么,含耗时/错误) → agent 当时所见上下文构成</p></div>' +
     '<div id="turns-body" style="max-height:70vh;overflow:auto">'+first+moreBtn+"</div>";

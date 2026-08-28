@@ -118,6 +118,16 @@ export default function (pi: ExtensionAPI): void {
       });
     }
 
+    // v2.1 配置快照: systemPrompt全文(截断8k) + 技能集 + 活跃工具集
+    const sp2 = e.systemPrompt ?? "";
+    const selectedTools = (e.systemPromptOptions as { selectedTools?: unknown } | undefined)?.selectedTools;
+    logEvent("config_snapshot", {
+      cwd,
+      system_prompt: sp2.slice(0, 8000),
+      skills_loaded: skills.map((s) => s.name).filter(Boolean),
+      selected_tools: Array.isArray(selectedTools) ? selectedTools : undefined,
+    });
+
     // 真启停: 从系统提示中剔除禁用技能的 <skill> 条目
     let disabled: string[] = [];
     try { disabled = JSON.parse(readFileSync(join(homedir(), ".harness-manager", "disabled-skills.json"), "utf-8")).skills ?? []; } catch {}

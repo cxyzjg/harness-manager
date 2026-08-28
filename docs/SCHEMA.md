@@ -134,3 +134,49 @@ interface IngestResult {
 
 - v1 冻结后字段只增不改语义；废弃字段保留一个版本并标注 @deprecated
 - 适配器输出的统一模型必须通过 `validateUnified()` 校验方可入库
+
+---
+
+## v2.1 增补（Agent Runtime 上下文与配置地基）
+
+> 阶段0新增决策已拍板:
+> **D5 context_snapshot 结构**: 拆4段 —— system_prompt / history / tool_result / file_content 各自token数(够用,不按文件粒度)
+> **D6 AgentConfig 绑定策略**: 每次会话开始**快照一份配置**(强绑定), 会话独立可追溯, 不引用可变"当前配置"
+
+### 新增实体
+
+#### ContextSnapshot (turn级上下文构成, D5)
+| 字段 | 说明 |
+|---|---|
+| turn_id | 归属回合 |
+| system_prompt_tokens | 系统提示占用 |
+| history_tokens | 历史消息占用 |
+| tool_result_tokens | 工具返回占用 |
+| file_content_tokens | 文件内容占用 |
+| memory_entries_used | 引用的记忆条目(v2.2记忆治理预留) |
+| snapshot_at | 快照时间 |
+
+来源: pi=extension快照(before_agent_start的systemPrompt+usage); CC=message.usage估算。
+无法精确拆分时填可得字段, 其余为null——**宁缺勿造**。
+
+#### AgentConfig (agent配置快照, D6)
+| 字段 | 说明 |
+|---|---|
+| id | cfg_{harness}_{hash12} |
+| harness | 来源 |
+| version_hash | 内容sha256前12位(同内容=同版本) |
+| system_prompt | 全文(截断8k) |
+| model / thinking_level | 模型与思考等级 |
+| allowed_tools | json数组 |
+| skills_loaded | json数组: 本回合加载的技能名 |
+| created_at | 首次见到的时间 |
+
+sessions.agent_config_ref → agent_configs.id
+每turn可引用不同config(pi支持中途换模型/工具集), 因此turn也带config_ref。
+
+### 存储布局更新
+```
+~/.harness-manager/
+├── db.sqlite                  # +context_snapshots + agent_configs 两表; sessions/turns加ref列
+└── realtime/events.log        # extension新增 config_snapshot / context_snapshot 事件流
+```

@@ -382,7 +382,9 @@ export function startServer(): void {
           // 实时错误回填(pi tool_result -> is_error)
           const { backfillErrors } = await import("./db/errorBackfill.js");
           const bf = backfillErrors();
-          return json(res, { ok: true, sessions: cached.sessions.length, resources: cached.resources.length, v2: report, backfill: bf });
+          const { backfillConfigs } = await import("./db/configBackfill.js");
+          const cf = backfillConfigs();
+          return json(res, { ok: true, sessions: cached.sessions.length, resources: cached.resources.length, v2: report, backfill: bf, configs: cf });
         }
         // 会话执行轨迹 + 思考
         const sm = path.match(/^\/api\/sessions\/(.+)\/story$/);

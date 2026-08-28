@@ -15,6 +15,7 @@ export interface UnifiedSession {
   model?: string;
   degraded: boolean;
   source_file?: string;
+  agent_config_ref?: string; // v2.1: 会话配置快照引用(D6)
 }
 
 /** 用户回合 */
@@ -98,4 +99,35 @@ export function validateUnified(r: IngestResult): string[] {
     if (!tc.session_id) errs.push(`tool_call ${tc.id} 缺 session_id`);
   }
   return errs;
+}
+
+// ============ v2.1: 上下文构成 + Agent配置 (docs/SCHEMA.md v2.1, D5/D6) ============
+
+/** turn 级上下文构成快照 (D5: 4段token拆解) */
+export interface ContextSnapshot {
+  turn_id: string;
+  system_prompt_tokens?: number;
+  history_tokens?: number;
+  tool_result_tokens?: number;
+  file_content_tokens?: number;
+  memory_entries_used?: string[];
+  snapshot_at?: string;
+}
+
+/** agent 配置快照 (D6: 每会话快照, 独立可追溯) */
+export interface AgentConfig {
+  id: string; // cfg_{harness}_{hash12}
+  harness: HarnessId;
+  version_hash: string; // 内容sha256前12位
+  system_prompt: string; // 截断8k
+  model?: string;
+  thinking_level?: string;
+  allowed_tools?: string[];
+  skills_loaded?: string[];
+  created_at?: string;
+}
+
+/** 扩展 IngestResult (可选字段, 旧适配器不填也不破坏) */
+export interface ConfigRefResult {
+  agent_config?: AgentConfig;
 }
