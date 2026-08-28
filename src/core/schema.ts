@@ -83,6 +83,8 @@ export interface IngestResult {
   tool_calls: ToolCallRecord[];
   costs: CostRecord[];
   errors: IngestError[]; // 单条跳过明细
+  /** v2.1: turn 级实测上下文总量(pi message.usage.input), 可选 */
+  context_snapshots?: ContextSnapshot[];
 }
 
 /** 校验: 入库前的守门(见 兼容性承诺) */
@@ -106,6 +108,8 @@ export function validateUnified(r: IngestResult): string[] {
 /** turn 级上下文构成快照 (D5: 4段token拆解) */
 export interface ContextSnapshot {
   turn_id: string;
+  /** 实测: 该回合 LLM 报告的 input_tokens(= 当时上下文总量, 最可靠) */
+  actual_total_tokens?: number;
   system_prompt_tokens?: number;
   history_tokens?: number;
   tool_result_tokens?: number;

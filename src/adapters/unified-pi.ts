@@ -73,6 +73,7 @@ export function piParse(file: string): IngestResult {
   let toolCount = 0;
   let thinkIdx = 0;
   let firstTurnMade = false;
+  const turnActual = new Map<string, number>();
 
   const lines = raw.split("\n").filter(Boolean);
   for (let ln = 0; ln < lines.length; ln++) {
@@ -111,6 +112,14 @@ export function piParse(file: string): IngestResult {
     msgCount++;
     const role = ev.message.role;
     const content = Array.isArray(ev.message.content) ? (ev.message.content as RawContent[]) : [];
+
+    // v2.1: assistant 消息的 usage.input = 该回合当时上下文总量(实测)
+    if (role === "assistant" && ev.message?.usage && curTurn) {
+      const u = ev.message.usage as { input?: number; output?: number };
+      if (u.input && u.input > 0) {
+        turnActual.set(curTurn.id, Math.max(turnActual.get(curTurn.id) ?? 0, u.input));
+      }
+    }
 
     if (role === "user") {
       curTurn = {
@@ -174,6 +183,14 @@ export function piParse(file: string): IngestResult {
     source_file: file,
   };
   res.turns = turns;
+  // v2.1: 实测上下文快照(该回合 LLM input = 当时上下文总量)
+  if (turnActual.size) {
+    res.context_snapshots = [...turnActual.entries()].map(([turn_id, input]) => ({
+      turn_id,
+      actual_total_tokens: input,
+      snapshot_at: undefined,
+    }));
+  }
   return res;
 }
 

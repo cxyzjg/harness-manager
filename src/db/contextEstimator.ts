@@ -76,9 +76,13 @@ export function estimateContextForSession(sessionId: string): { turns: number; u
   let fileChars = 0;
   let updated = 0;
 
+  // UPSERT: 只更新估算四段, 不覆盖实测 actual_total_tokens
   const upStmt = d.prepare(
-    `INSERT OR REPLACE INTO context_snapshots (turn_id, system_prompt_tokens, history_tokens, tool_result_tokens, file_content_tokens, snapshot_at)
-     VALUES (?,?,?,?,?,?)`
+    `INSERT INTO context_snapshots (turn_id, system_prompt_tokens, history_tokens, tool_result_tokens, file_content_tokens, snapshot_at)
+     VALUES (@turn_id,@system_prompt_tokens,@history_tokens,@tool_result_tokens,@file_content_tokens,@snapshot_at)
+     ON CONFLICT(turn_id) DO UPDATE SET
+       system_prompt_tokens=@system_prompt_tokens, history_tokens=@history_tokens,
+       tool_result_tokens=@tool_result_tokens, file_content_tokens=@file_content_tokens, snapshot_at=@snapshot_at`
   );
 
   for (const t of turnRows) {
@@ -87,7 +91,7 @@ export function estimateContextForSession(sessionId: string): { turns: number; u
     const toolTok = Math.round(toolChars / 3);
     const fileTok = Math.round(fileChars / 3);
 
-    upStmt.run(t.id, sysP, histTok, toolTok, fileTok, new Date().toISOString());
+    upStmt.run({ turn_id: t.id, system_prompt_tokens: sysP, history_tokens: histTok, tool_result_tokens: toolTok, file_content_tokens: fileTok, snapshot_at: new Date().toISOString() });
     updated++;
 
     // 本回合结束后的累计(供下一 turn 的"当时上下文")
@@ -111,11 +115,12 @@ export function contextTimeline(sessionId: string): {
   historyTokens: number | null;
   toolResultTokens: number | null;
   fileContentTokens: number | null;
+  actualTotalTokens?: number;
   totalEstimated: number;
 }[] {
   const d = getDb();
   const rows = d
-    .prepare(`SELECT t.idx AS turnIdx, cs.system_prompt_tokens, cs.history_tokens, cs.tool_result_tokens, cs.file_content_tokens
+    .prepare(`SELECT t.idx AS turnIdx, cs.system_prompt_tokens, cs.history_tokens, cs.tool_result_tokens, cs.file_content_tokens, cs.actual_total_tokens
               FROM context_snapshots cs JOIN turns t ON t.id = cs.turn_id
               WHERE t.session_id=? ORDER BY t.idx`)
     .all(sessionId) as {
@@ -124,6 +129,7 @@ export function contextTimeline(sessionId: string): {
     history_tokens: number | null;
     tool_result_tokens: number | null;
     file_content_tokens: number | null;
+    actual_total_tokens: number | null;
   }[];
   return rows.map((r) => {
     const total = (r.system_prompt_tokens ?? 0) + (r.history_tokens ?? 0) + (r.tool_result_tokens ?? 0) + (r.file_content_tokens ?? 0);
@@ -133,6 +139,7 @@ export function contextTimeline(sessionId: string): {
       historyTokens: r.history_tokens,
       toolResultTokens: r.tool_result_tokens,
       fileContentTokens: r.file_content_tokens,
+      actualTotalTokens: r.actual_total_tokens ?? undefined,
       totalEstimated: total,
     };
   });

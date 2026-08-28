@@ -110,6 +110,7 @@ function migrate(d: Database.Database): void {
       tool_result_tokens INTEGER,
       file_content_tokens INTEGER,
       memory_entries_used TEXT,
+      actual_total_tokens INTEGER,
       snapshot_at TEXT
     );
     CREATE INDEX IF NOT EXISTS idx_ctxsnap_turn ON context_snapshots(turn_id);
@@ -131,6 +132,7 @@ function migrate(d: Database.Database): void {
   for (const stmt of [
     "ALTER TABLE sessions ADD COLUMN agent_config_ref TEXT",
     "ALTER TABLE turns ADD COLUMN config_ref TEXT",
+    "ALTER TABLE context_snapshots ADD COLUMN actual_total_tokens INTEGER",
   ]) {
     try {
       d.exec(stmt);
@@ -208,6 +210,17 @@ export function ingest(res: IngestResult): { ok: boolean; sessionId?: string; er
       input_tokens: c.input_tokens ?? 0, output_tokens: c.output_tokens ?? 0,
       recorded_at: c.recorded_at ?? null,
     });
+
+    // v2.1: turn 级实测上下文快照(pi message.usage.input)
+    if (res.context_snapshots?.length) {
+      // UPSERT: 只写实测列, 保留估算四段
+      const insCtx = d.prepare(`INSERT INTO context_snapshots (turn_id, actual_total_tokens, snapshot_at)
+                                VALUES (@turn_id,@actual_total_tokens,@snapshot_at)
+                                ON CONFLICT(turn_id) DO UPDATE SET actual_total_tokens=@actual_total_tokens, snapshot_at=@snapshot_at`);
+      for (const cs of res.context_snapshots) {
+        insCtx.run({ turn_id: cs.turn_id, actual_total_tokens: cs.actual_total_tokens ?? null, snapshot_at: cs.snapshot_at ?? new Date().toISOString() });
+      }
+    }
 
     recordErrors(res.errors);
   });
@@ -408,8 +421,8 @@ export function linkTurnConfig(turnId: string, configId: string): void {
 /** 保存turn上下文快照(幂等) */
 export function saveContextSnapshot(s: ContextSnapshot): void {
   getDb()
-    .prepare(`INSERT OR REPLACE INTO context_snapshots (turn_id,system_prompt_tokens,history_tokens,tool_result_tokens,file_content_tokens,memory_entries_used,snapshot_at)
-              VALUES (@turn_id,@system_prompt_tokens,@history_tokens,@tool_result_tokens,@file_content_tokens,@memory_entries_used,@snapshot_at)`)
+    .prepare(`INSERT OR REPLACE INTO context_snapshots (turn_id,system_prompt_tokens,history_tokens,tool_result_tokens,file_content_tokens,memory_entries_used,actual_total_tokens,snapshot_at)
+              VALUES (@turn_id,@system_prompt_tokens,@history_tokens,@tool_result_tokens,@file_content_tokens,@memory_entries_used,@actual_total_tokens,@snapshot_at)`)
     .run({
       turn_id: s.turn_id,
       system_prompt_tokens: s.system_prompt_tokens ?? null,
@@ -417,6 +430,7 @@ export function saveContextSnapshot(s: ContextSnapshot): void {
       tool_result_tokens: s.tool_result_tokens ?? null,
       file_content_tokens: s.file_content_tokens ?? null,
       memory_entries_used: s.memory_entries_used ? JSON.stringify(s.memory_entries_used) : null,
+      actual_total_tokens: s.actual_total_tokens ?? null,
       snapshot_at: s.snapshot_at ?? new Date().toISOString(),
     });
 }
@@ -460,6 +474,7 @@ export function getContextSnapshots(sessionId: string): (ContextSnapshot & { tur
     tool_result_tokens: (r.tool_result_tokens as number) ?? undefined,
     file_content_tokens: (r.file_content_tokens as number) ?? undefined,
     memory_entries_used: safeJson(r.memory_entries_used as string) as string[] | undefined,
+    actual_total_tokens: (r.actual_total_tokens as number) ?? undefined,
     snapshot_at: (r.snapshot_at as string) ?? undefined,
   }));
 }
