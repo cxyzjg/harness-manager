@@ -73,11 +73,13 @@ function sessionDetail(id: string) {
 
 const routes: Record<string, (url: URL) => Promise<unknown> | unknown> = {
   "/api/dashboard": () => dashboard(),
-  "/api/v2/sessions": () =>
-    import("./db/store.js").then(({ listSessions, perSessionStats }) => {
+  "/api/v2/sessions": (url) => {
+    const sort = (url.searchParams.get("sort") ?? "active") as "active" | "started" | "tokens";
+    return import("./db/store.js").then(({ listSessions, perSessionStats }) => {
       const stats = perSessionStats();
-      return listSessions().map((s) => ({ ...s, stats: stats[s.id] ?? { turns: 0, tools: 0, thinking: 0, tokensIn: 0, tokensOut: 0 } }));
-    }),
+      return listSessions(undefined, sort).map((s) => ({ ...s, stats: stats[s.id] ?? { turns: 0, tools: 0, thinking: 0, tokensIn: 0, tokensOut: 0 } }));
+    });
+  },
   "/api/v2/context": (url) => {
     // 上下文管理视图: 每turn四段token构成演变(先估算回填再读)
     const id = url.searchParams.get("id") ?? "";

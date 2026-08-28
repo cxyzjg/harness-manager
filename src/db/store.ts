@@ -227,10 +227,19 @@ function stringify(v: unknown): string | null {
 }
 
 // ---------- 查询 API ----------
-export function listSessions(harness?: string): UnifiedSession[] {
+export type SessionSort = "active" | "started" | "tokens";
+
+/** 列表排序: active=最后活跃(默认) / started=开始时间 / tokens=消耗最多 */
+export function listSessions(harness?: string, sort: SessionSort = "active"): UnifiedSession[] {
+  const order =
+    sort === "started"
+      ? "COALESCE(started_at, ended_at) DESC"
+      : sort === "tokens"
+        ? "COALESCE((SELECT SUM(input_tokens+output_tokens) FROM costs c WHERE c.session_id = sessions.id), 0) DESC"
+        : "COALESCE(ended_at, started_at) DESC";
   const rows = harness
-    ? getDb().prepare("SELECT * FROM sessions WHERE harness=? ORDER BY COALESCE(ended_at, started_at) DESC").all(harness)
-    : getDb().prepare("SELECT * FROM sessions ORDER BY COALESCE(ended_at, started_at) DESC").all();
+    ? getDb().prepare(`SELECT * FROM sessions WHERE harness=? ORDER BY ${order}`).all(harness)
+    : getDb().prepare(`SELECT * FROM sessions ORDER BY ${order}`).all();
   return (rows as Record<string, unknown>[]).map(rowToSession);
 }
 

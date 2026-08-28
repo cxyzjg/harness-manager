@@ -377,12 +377,17 @@ async function showSkillCard(name) {
 /* ========== 会话中心 ========== */
 var sessTimer = null;
 var _view = "sessions"; // 当前子视图: sessions(列表) / review(审查回放), 轮询只在 sessions 时继续
+var _sessSort = "active"; // active/started/tokens
+function setSessSort(mode) {
+  _sessSort = mode;
+  loadSessionsPage();
+}
 async function loadSessionsPage() {
   _view = "sessions";
-  var pair = await Promise.all([api("/api/v2/sessions"), api("/api/v2/fleet")]);
+  var pair = await Promise.all([api("/api/v2/sessions?sort=" + _sessSort), api("/api/v2/fleet")]);
   var list = pair[0] || [];
   var fleet = pair[1] || {};
-  var rows = list.slice().sort(function(a,b){ return (b.started_at||"").localeCompare(a.started_at||""); }).slice(0,80).map(function(s){
+  var rows = list.slice(0,80).map(function(s){
     var st = s.stats || {};
     var degradedTag = s.degraded ? ' <span class="tag red">降级</span>' : "";
     return "<tr>" +
@@ -395,8 +400,16 @@ async function loadSessionsPage() {
       '<td class="muted">'+esc((s.cwd||"").slice(-30))+degradedTag+"</td>" +
     "</tr>";
   }).join("");
-  $("#content").innerHTML =
+  var sb = document.querySelectorAll(".sort-btn");
+    sb.forEach(function(x){ x.classList.toggle("active-tab", x.dataset.sort === _sessSort); });
+    $("#content").innerHTML =
     '<div class="panel"><h2>会话历史 (统一库: '+list.length+' 会话 · 全局等级 <span class="tag yellow">'+(fleet.globalGrade||"-")+'</span> · 错误率 '+(fleet.errorRate*100).toFixed(1)+'% · 每2分钟自动同步)</h2>' +
+      '<div style="margin:6px 0;display:flex;gap:6px;align-items:center">' +
+        '<span class="muted" style="font-size:12px">排序:</span>' +
+        '<button class="op sort-btn" data-sort="active">🟢 最后活跃</button>' +
+        '<button class="op sort-btn" data-sort="started">🕐 开始时间</button>' +
+        '<button class="op sort-btn" data-sort="tokens">💰 token消耗</button>' +
+      '</div>' +
       '<table><thead><tr><th>id</th><th>harness</th><th>日期</th><th>turn/工具/思考</th><th>token</th><th>模型</th><th>项目</th></tr></thead><tbody>'+(rows || '<tr><td colspan="7" class="muted">暂无。点击右上"🔄刷新数据"</td></tr>')+'</tbody></table></div>';
 }
 
@@ -574,6 +587,12 @@ $("#nav").addEventListener("click", (e) => {
   b.classList.add("active");
   if (b.dataset.page !== "live") _view2 = ""; // 离开实时页则停轮询
   pages[b.dataset.page]();
+});
+
+// 会话排序按钮(事件委托)
+document.addEventListener("click", function(ev) {
+  var b = ev.target.closest(".sort-btn");
+  if (b) { _sessSort = b.dataset.sort; loadSessionsPage(); }
 });
 
 async function rescanNow() {
