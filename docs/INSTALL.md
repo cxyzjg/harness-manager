@@ -90,6 +90,22 @@ npm run hm -- serve      # → http://localhost:8787
 > 各机之间**不共享数据**。若多台机器需要同一套技能/决策，它们从同一仓库拉取即可
 > （`git pull` / `pi update`），本机数据仍各自独立。
 
+## 5. 进程守护 (长期挂载)
+
+驾驶舱设计为长期运行的服务(60s自动扫描+实时事件)。用 pm2 守护:
+
+```bash
+npm install -g pm2
+pm2 start ecosystem.config.cjs   # 启动(崩溃自动重启, 日志落 logs/)
+pm2 logs harness-manager         # 查看日志
+pm2 save                         # 保存进程列表
+# Windows 开机自启(可选):
+npm install -g pm2-windows-startup && pm2-startup install
+```
+
+**访问鉴权(可选)**: 同机多用户时, 在 `~/.harness-manager/config.json` 加
+`"authToken": "你的密钥"`, 之后所有 API 需要 Bearer token; Web 首次访问会提示输入。
+
 ## 5. 常见问题
 
 - **`pi install` 私有仓库失败**：检查 ssh key / PAT 与 `insteadOf` 配置

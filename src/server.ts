@@ -337,6 +337,15 @@ export function startServer(): void {
     const path = url.pathname;
 
     try {
+      // 认证(#4): 配置了 authToken 时, API 请求需 Bearer token (/health 与静态页豁免)
+      const requiredToken = cfg.authToken;
+      if (requiredToken && (path.startsWith("/api/"))) {
+        const auth = req.headers["authorization"] ?? "";
+        if (auth !== "Bearer " + requiredToken) {
+          return json(res, { error: "unauthorized", hint: "设置 Authorization: Bearer <authToken>, 或在前端输入" }, 401);
+        }
+      }
+
       // POST /api/onboard — 新技能迁移（检测 + 执行）
       if (path === "/api/onboard" && req.method === "POST") {
         let body = "";
@@ -519,4 +528,21 @@ export function startServer(): void {
   server.listen(cfg.port, () => {
     console.log(`harness-manager Web 控制面: http://localhost:${cfg.port} (每 ${Math.round(cfg.scanIntervalMs / 1000)}s 自动扫描)`);
   });
+
+  // 优雅退出(#2 进程守护配套): 关闭server与db, 不丢处理中请求
+  let shuttingDown = false;
+  const shutdown = (signal: string): void => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    console.log(`
+收到 ${signal}, 优雅关闭中…`);
+    server.close(() => {
+      console.log("✓ 已关闭");
+      process.exit(0);
+    });
+    // 兜底: 5s 后强退
+    setTimeout(() => process.exit(0), 5000);
+  };
+  process.on("SIGINT", () => shutdown("SIGINT"));
+  process.on("SIGTERM", () => shutdown("SIGTERM"));
 }

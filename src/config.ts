@@ -10,6 +10,8 @@ export interface Config {
   enabledHarnesses: ("pi" | "claude" | "codex")[];
   scanIntervalMs: number; // 采集间隔
   dataDir: string; // 缓存/索引目录
+  /** 可选静态token鉴权: 配置后所有API需 Authorization: Bearer <token> (同机多用户防护) */
+  authToken?: string;
 }
 
 export function dataDir(): string {

@@ -75,7 +75,16 @@
 
 <script>
 const $ = (sel) => document.querySelector(sel);
-const api = async (p) => (await fetch(p)).json();
+const _token = window.localStorage.getItem("hm-token") || "";
+const api = async (p) => {
+  var res = await fetch(p, { headers: _token ? { "Authorization": "Bearer " + _token } : {} });
+  if (res.status === 401) {
+    var t = prompt("本机已启用访问鉴权, 请输入 authToken (config.json 的 authToken 字段):");
+    if (t != null) { window.localStorage.setItem("hm-token", t); return api(p); }
+    throw new Error("401 unauthorized");
+  }
+  return res.json();
+};
 const toast = (msg) => {
   let el = document.getElementById("toast");
   if (!el) {
