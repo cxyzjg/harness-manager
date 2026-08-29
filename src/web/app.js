@@ -626,10 +626,12 @@ function applyRoute() {
 }
 window.addEventListener("hashchange", applyRoute);
 
-// 会话排序按钮(事件委托)
+// 会话排序/视图按钮(事件委托)
 document.addEventListener("click", function(ev) {
   var b = ev.target.closest(".sort-btn");
-  if (b) { _sessSort = b.dataset.sort; loadSessionsPage(); }
+  if (b) { _sessSort = b.dataset.sort; loadSessionsPage(); return; }
+  var vb = ev.target.closest(".view-btn");
+  if (vb) { _sessView = vb.dataset.view; loadSessionsPage(); }
 });
 
 async function rescanNow() {
