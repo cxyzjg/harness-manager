@@ -379,11 +379,18 @@ async function loadSessionsPage() {
         var key = (s.cwd || "(unknown)").replace(/[\/]+$/, "");
         (byProject[key] = byProject[key] || []).push(s);
       });
-      var keys = Object.keys(byProject).sort(function(a,b){
-        var ma = Math.max.apply(null, byProject[a].map(function(x){return new Date(x.ended_at||x.started_at||0).getTime();}));
-        var mb = Math.max.apply(null, byProject[b].map(function(x){return new Date(x.ended_at||x.started_at||0).getTime();}));
-        return mb - ma;
-      });
+      // 项目间排序: 尊重当前排序方式(active=项目内最新活跃/started=最新开始/tokens=token总和)
+      var projMetric = function(k){
+        var sess = byProject[k];
+        if (_sessSort === "tokens") {
+          return sess.reduce(function(a,s2){ var st=s2.stats||{}; return a+(st.tokensIn||0)+(st.tokensOut||0); }, 0);
+        }
+        if (_sessSort === "started") {
+          return Math.max.apply(null, sess.map(function(x){return new Date(x.started_at||0).getTime();}));
+        }
+        return Math.max.apply(null, sess.map(function(x){return new Date(x.ended_at||x.started_at||0).getTime();}));
+      };
+      var keys = Object.keys(byProject).sort(function(a,b){ return projMetric(b) - projMetric(a); });
       tableHtml = keys.map(function(k){
         var sess = byProject[k];
         var gid = "pg_" + k.replace(/[^a-zA-Z0-9]/g, "_");
