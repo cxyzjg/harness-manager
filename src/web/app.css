@@ -1,14 +1,14 @@
 :root { --bg:#0f1115; --card:#1a1d24; --line:#2a2e37; --fg:#e6e8eb; --muted:#9aa0a8; --accent:#4f8cff; --green:#3fb950; --red:#f85149; --yellow:#d29922; }
   * { box-sizing:border-box; margin:0; padding:0; }
   body { font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif; background:var(--bg); color:var(--fg); }
-  header { padding:16px 24px; border-bottom:1px solid var(--line); display:flex; align-items:center; gap:16px; }
+  header { max-width:1400px; margin:0 auto; width:100%; box-sizing:border-box; padding:16px 24px; border-bottom:1px solid var(--line); display:flex; align-items:center; gap:16px; }
   header h1 { font-size:18px; }
   header .badge { font-size:12px; color:var(--muted); }
-  nav { display:flex; gap:4px; padding:8px 24px; border-bottom:1px solid var(--line); flex-wrap:wrap; }
+  nav { display:flex; gap:4px; padding:8px 24px; border-bottom:1px solid var(--line); flex-wrap:wrap; max-width:1400px; margin:0 auto; width:100%; box-sizing:border-box; }
   nav button { background:none; border:none; color:var(--muted); padding:8px 14px; border-radius:8px; cursor:pointer; font-size:14px; }
   nav button.active { background:var(--card); color:var(--fg); }
   nav button:hover { background:var(--card); }
-  main { padding:20px 24px; max-width:1200px; }
+  main { padding:20px 24px; max-width:1400px; margin:0 auto; width:100%; box-sizing:border-box; }
   .cards { display:grid; grid-template-columns:repeat(auto-fit,minmax(160px,1fr)); gap:12px; margin-bottom:20px; }
   .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:16px; }
   .card .num { font-size:28px; font-weight:700; }
@@ -47,3 +47,14 @@
   a { color:var(--accent); text-decoration:none; }
   .row { display:flex; gap:12px; flex-wrap:wrap; }
   .row > .panel { flex:1; min-width:280px; }
+
+/* ===== 布局修复(高分屏居中/窄屏滚动/响应式) ===== */
+.table-wrap { overflow-x: auto; }
+@media (max-width: 900px) {
+  main, nav { padding-left: 12px; padding-right: 12px; }
+  .cards { grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); }
+  .term { height: 50vh; }
+}
+
+/* 表格在窄容器内横向滚动(10列技能表/7列会话表) */
+.panel > table, .panel > div > table { display: block; overflow-x: auto; white-space: nowrap; }
