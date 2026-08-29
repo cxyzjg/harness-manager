@@ -100,6 +100,15 @@ export default function (pi: ExtensionAPI): void {
       toolCallId: e.toolCallId ?? "",
       sessionId: e.sessionId ?? "",
     });
+    // 技能真实使用检测: read/grep 类调用指向 skills/*/SKILL.md => agent 正在执行该技能
+    try {
+      const inp = (e.input ?? {}) as { path?: unknown; file_path?: unknown };
+      const target = typeof inp.path === "string" ? inp.path : typeof inp.file_path === "string" ? inp.file_path : "";
+      const m = target.match(/[\/]skills[\/]([^\/]+)[\/]SKILL\.md$/i);
+      if (m && e.toolName === "read") {
+        logEvent("skill_invoked", { skills: [m[1]], cwd: process.cwd() });
+      }
+    } catch { /* 检测失败不影响工具执行 */ }
     // 不阻塞、不修改工具调用（纯监控）
     return undefined;
   });
@@ -134,14 +143,23 @@ export default function (pi: ExtensionAPI): void {
       };
     };
     const skills = e.systemPromptOptions?.skills ?? [];
+    const skillNames = skills.map((s) => s.name).filter(Boolean);
     const cwd = e.systemPromptOptions?.cwd || process.cwd();
     const prompt = (e.prompt ?? "").slice(0, 200);
-    if (skills.length) {
-      logEvent("skill_trigger", {
-        skills: skills.map((s) => s.name).filter(Boolean),
-        cwd,
-        prompt,
-      });
+
+    // 可用技能快照(每回合, 不再称为"触发"—— 可用≠使用)
+    if (skillNames.length) {
+      logEvent("skills_available", { skills: skillNames, cwd });
+    }
+
+    // 显式引用检测: 用户 prompt 中提到 /skill:name 或技能名(词边界) => 这才是"使用意图"
+    const referenced = skillNames.filter((n) => {
+      if (!n) return false;
+      const re = new RegExp("(?<![a-z])" + n.replace(/[-_]/g, "[-_ ]?") + "(?![a-z])", "i");
+      return re.test(e.prompt ?? "");
+    });
+    if (referenced.length) {
+      logEvent("skill_referenced", { skills: referenced, cwd, prompt });
     }
 
     // v2.1 配置快照: systemPrompt全文(截断8k) + 技能集 + 活跃工具集

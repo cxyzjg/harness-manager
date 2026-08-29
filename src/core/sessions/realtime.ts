@@ -14,7 +14,7 @@ import { homedir } from "node:os";
 
 export interface LiveEvent {
   ts: string;
-  type: "tool_call" | "session_start" | "session_shutdown" | "skill_trigger" | "compaction" | "model_change" | "assistant_message" | "tool_result" | "config_snapshot";
+  type: "tool_call" | "session_start" | "session_shutdown" | "skill_trigger" | "skill_invoked" | "skills_available" | "skill_referenced" | "compaction" | "model_change" | "assistant_message" | "tool_result" | "config_snapshot";
   toolName?: string;
   input?: unknown;
   sessionId?: string;

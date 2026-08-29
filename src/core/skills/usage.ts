@@ -1,8 +1,8 @@
 /**
  * 技能触发追踪（第4项）
  *
- * 从 realtime events.log 提取 skill_trigger 事件（pi extension 在
- * before_agent_start 记录：每用户回合已加载的技能 + 项目 + 提示词），
+ * 从 realtime events.log 提取 skill_invoked 事件（pi extension 在
+ * tool_call 读取 skills 目录下的 SKILL.md 时记录 = agent 真实使用技能），
  * 聚合成技能触发统计：
  *  - 触发次数
  *  - 触发记录（时间/项目/场景/提示词）
@@ -43,7 +43,8 @@ export function readSkillTriggers(max = 5000): SkillTrigger[] {
     for (const line of raw.slice(-max)) {
       try {
         const e = JSON.parse(line) as LiveEvent & { skills?: string[]; prompt?: string };
-        if (e.type === "skill_trigger" && e.skills?.length) {
+        // v2语义: skill_invoked = agent实际读取SKILL.md(真使用); skill_trigger = 旧全量事件(不统计)
+        if (e.type === "skill_invoked" && e.skills?.length) {
           triggers.push({ ts: e.ts, skills: e.skills, cwd: e.cwd, prompt: e.prompt });
         }
       } catch { /* skip */ }
