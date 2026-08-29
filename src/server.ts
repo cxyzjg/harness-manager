@@ -538,6 +538,23 @@ export function startServer(): void {
     } catch { /* 静默 */ }
   }, Math.max(30_000, cfg.scanIntervalMs));
 
+  // 端口占用友好处理(EADDRINUSE): 自动换端口重试, 避免堆栈崩溃
+  let portTries = 0;
+  server.on("error", (err: NodeJS.ErrnoException) => {
+    if (err.code === "EADDRINUSE" && portTries < 5) {
+      portTries++;
+      const next = cfg.port + portTries;
+      console.log(`⚠ 端口 ${cfg.port} 被占用(可能已有驾驶舱实例在运行), 改用 ${next}...`);
+      cfg.port = next;
+      server.listen(next);
+      return;
+    }
+    console.error(`✗ 服务启动失败: ${err.message}`);
+    console.error(`  排查: netstat -ano | findstr ${cfg.port}  找到PID后 taskkill //F //PID <pid>`);
+    console.error(`  或改端口: ~/.harness-manager/config.json 的 port 字段`);
+    process.exit(1);
+  });
+
   server.listen(cfg.port, () => {
     console.log(`harness-manager Web 控制面: http://localhost:${cfg.port} (每 ${Math.round(cfg.scanIntervalMs / 1000)}s 自动扫描)`);
   });
