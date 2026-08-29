@@ -473,13 +473,26 @@ export function startServer(): void {
         return json(res, await handler(url));
       }
 
-      // 静态页面
+      // 静态页面与资源
       if (path === "/" || path === "/index.html") {
         if (existsSync(htmlPath)) {
           res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
           return res.end(readFileSync(htmlPath));
         }
         return json(res, { error: "web not built" }, 500);
+      }
+      // 静态资源(css/js): 白名单映射防目录穿越
+      const staticFiles: Record<string, { file: string; type: string }> = {
+        "/app.css": { file: join(repoRoot, "src", "web", "app.css"), type: "text/css; charset=utf-8" },
+        "/app.js": { file: join(repoRoot, "src", "web", "app.js"), type: "application/javascript; charset=utf-8" },
+      };
+      if (staticFiles[path]) {
+        const sf = staticFiles[path];
+        if (existsSync(sf.file)) {
+          res.writeHead(200, { "Content-Type": sf.type });
+          return res.end(readFileSync(sf.file));
+        }
+        return json(res, { error: "not found" }, 404);
       }
       return json(res, { error: "not found" }, 404);
     } catch (e) {
