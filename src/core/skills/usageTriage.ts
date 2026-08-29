@@ -11,6 +11,7 @@
  */
 import { readFileSync, readdirSync, existsSync } from "node:fs";
 import { join } from "node:path";
+import { dataDir } from "../../config.js";
 import { homedir } from "node:os";
 import { getDisabledSkills } from "./control.js";
 
@@ -23,7 +24,7 @@ export interface SkillUsageTriage {
 }
 
 function readTriggers(): Record<string, number> {
-  const p = join(homedir(), ".harness-manager", "realtime", "events.log");
+  const p = join(dataDir(), "realtime", "events.log");
   const bySkill: Record<string, number> = {};
   if (!existsSync(p)) return bySkill;
   try {

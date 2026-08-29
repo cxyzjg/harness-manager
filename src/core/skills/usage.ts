@@ -10,6 +10,7 @@
  */
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { dataDir } from "../../config.js";
 import { homedir } from "node:os";
 import type { LiveEvent } from "../sessions/realtime.js";
 
@@ -29,7 +30,7 @@ export interface SkillUsageStats {
 }
 
 function usageLogPath(): string {
-  return join(homedir(), ".harness-manager", "realtime", "events.log");
+  return join(dataDir(), "realtime", "events.log");
 }
 
 /** 读取全部触发事件 */

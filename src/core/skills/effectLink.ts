@@ -7,6 +7,7 @@
  * 输出: 每技能 [触发次数 / 关联会话数 / 平均成效分(有outcome则用) / 可靠性等级分布] vs 全局基线
  */
 import { join } from "node:path";
+import { dataDir } from "../../config.js";
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 
@@ -28,7 +29,7 @@ interface TriggerEv {
 
 /** 读 realtime events.log 的 skill_trigger */
 function readTriggers(): TriggerEv[] {
-  const p = join(homedir(), ".harness-manager", "realtime", "events.log");
+  const p = join(dataDir(), "realtime", "events.log");
   try {
     return readFileSync(p, "utf-8")
       .split("\n")

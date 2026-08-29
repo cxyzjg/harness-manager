@@ -9,6 +9,7 @@
  */
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
+import { dataDir } from "../../config.js";
 import { homedir } from "node:os";
 
 export interface LiveEvent {
@@ -53,7 +54,7 @@ interface ToolWindow {
 }
 
 function logPath(): string {
-  return join(homedir(), ".harness-manager", "realtime", "events.log");
+  return join(dataDir(), "realtime", "events.log");
 }
 
 /** 读取全部事件 */

@@ -9,11 +9,12 @@
  */
 import { readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
+import { dataDir } from "../config.js";
 import { homedir } from "node:os";
 import { getDb } from "./store.js";
 
 export function backfillErrors(): { scanned: number; errorsFound: number; updated: number } {
-  const p = join(homedir(), ".harness-manager", "realtime", "events.log");
+  const p = join(dataDir(), "realtime", "events.log");
   if (!existsSync(p)) return { scanned: 0, errorsFound: 0, updated: 0 };
   const d = getDb();
   let scanned = 0;
