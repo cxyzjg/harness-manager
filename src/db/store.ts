@@ -29,7 +29,23 @@ export function getDb(): Database.Database {
 }
 
 function migrate(d: Database.Database): void {
-  d.exec(`
+  // 版本化迁移管理: 每个schema版本只执行一次, 可审计当前库版本
+  d.exec(`CREATE TABLE IF NOT EXISTS schema_migrations (
+    version INTEGER PRIMARY KEY,
+    applied_at TEXT NOT NULL
+  )`);
+  const applied = new Set(
+    (d.prepare("SELECT version FROM schema_migrations").all() as { version: number }[]).map((r) => r.version)
+  );
+  const applyVersion = (version: number, fn: () => void): void => {
+    if (applied.has(version)) return;
+    fn();
+    d.prepare("INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)").run(version, new Date().toISOString());
+  };
+
+  applyVersion(1, () => {
+    // v1: 基础表(sessions/turns/thinkings/tool_calls/costs/ingest_errors/resources)
+    d.exec(`
     CREATE TABLE IF NOT EXISTS sessions (
       id TEXT PRIMARY KEY,
       harness TEXT NOT NULL,
@@ -91,10 +107,12 @@ function migrate(d: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_tools_session ON tool_calls(session_id);
     CREATE INDEX IF NOT EXISTS idx_tools_name ON tool_calls(name);
   `);
+  });
 
   // ---- v2.1 增量迁移(可重复执行: CREATE IF NOT EXISTS + ALTER用try-catch容剾重复列) ----
+  applyVersion(2, () => {
   d.exec(`
-    CREATE TABLE IF NOT EXISTS agent_configs (
+      CREATE TABLE IF NOT EXISTS agent_configs (
       id TEXT PRIMARY KEY,
       harness TEXT NOT NULL,
       version_hash TEXT NOT NULL,
@@ -117,6 +135,7 @@ function migrate(d: Database.Database): void {
     );
     CREATE INDEX IF NOT EXISTS idx_ctxsnap_turn ON context_snapshots(turn_id);
   `);
+  });
   d.exec(`
     CREATE TABLE IF NOT EXISTS resources (
       id TEXT PRIMARY KEY,

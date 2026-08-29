@@ -16,7 +16,7 @@ import { readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { loadConfig, ensureDataDir } from "./config.js";
 import { scan } from "./orchestrator.js";
-import { buildLegacyShape, saveResources } from "./db/store.js";
+import { buildLegacyShape, saveResources, getDb } from "./db/store.js";
 import { detectDupes } from "./core/skills/dedupe.js";
 import { aggregateTokens, contextStats, toolStats } from "./core/sessions/stats.js";
 import { buildCallTree } from "./core/sessions/calltree.js";
@@ -28,6 +28,7 @@ import { assessSkillHealth, healthSummary } from "./core/skills/skillHealth.js";
 const htmlPath = join(repoRoot, "src", "web", "index.html");
 
 let cached = buildLegacyShape();
+const startedAt = Date.now();
 
 function json(res: ServerResponse, data: unknown, status = 200): void {
   res.writeHead(status, { "Content-Type": "application/json; charset=utf-8" });
@@ -73,6 +74,24 @@ function sessionDetail(id: string) {
 }
 
 const routes: Record<string, (url: URL) => Promise<unknown> | unknown> = {
+  "/api/ops-health": () => {
+    let dbOk = false;
+    let sessions = 0;
+    let dbVersion: number | null = null;
+    try {
+      const d = getDb();
+      dbOk = true;
+      sessions = (d.prepare("SELECT COUNT(*) n FROM sessions").get() as { n: number }).n;
+      const v = d.prepare("SELECT MAX(version) v FROM schema_migrations").get() as { v: number | null };
+      dbVersion = v.v ?? null;
+    } catch { dbOk = false; }
+    return {
+      status: dbOk ? "ok" : "degraded",
+      uptime_s: Math.round((Date.now() - startedAt) / 1000),
+      db: { ok: dbOk, schema_version: dbVersion, sessions },
+      version: "0.1.0",
+    };
+  },
   "/api/dashboard": () => dashboard(),
   "/api/v2/sessions": (url) => {
     const sort = (url.searchParams.get("sort") ?? "active") as "active" | "started" | "tokens";
@@ -369,6 +388,11 @@ export function startServer(): void {
         if (payload.confirm !== true) return json(res, { planned: plans });
         const results = payload.ids.map((id) => executeMutation({ type: "move", resourceId: id }, repoRoot, true));
         return json(res, { planned: plans, executed: true, count: results.length });
+      }
+
+      // 健康检查探针(运维): 不需要数据库也能应答
+      if (path === "/health") {
+        return json(res, { status: "ok", uptime_s: Math.round((Date.now() - startedAt) / 1000) });
       }
 
       if (path.startsWith("/api/")) {

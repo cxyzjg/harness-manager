@@ -226,44 +226,54 @@ export function perSessionReliability(): {
   emptyTurns: number;
   grade: string;
 }[] {
+  // 重写(N+1消除): 3条聚合SQL替代 每会话6条 = 200+查询/次
   const d = getDb();
-  const sessions = listSessions();
-  const out: ReturnType<typeof perSessionReliability> = [];
-  for (const s of sessions) {
-    const one = (sql: string): Record<string, unknown> => d.prepare(sql).get(s.id) as never;
-    const tools = (one("SELECT COUNT(*) AS n FROM tool_calls WHERE session_id=?") as { n: number }).n;
-    const errors = (one("SELECT COUNT(*) AS n FROM tool_calls WHERE session_id=? AND is_error=1") as { n: number }).n;
-    const turnsRow = one("SELECT COUNT(*) AS n FROM turns WHERE session_id=?") as { n: number };
-    const retries = (d.prepare(`
-      SELECT COUNT(*) AS n FROM tool_calls a
-      WHERE a.session_id = ? AND EXISTS (
+  const base = d.prepare(`
+    SELECT s.id AS session_id, s.harness, s.cwd,
+      (SELECT COUNT(*) FROM turns t WHERE t.session_id = s.id) AS turns,
+      (SELECT COUNT(*) FROM tool_calls tc WHERE tc.session_id = s.id) AS tools,
+      (SELECT COALESCE(SUM(tc.is_error),0) FROM tool_calls tc WHERE tc.session_id = s.id) AS errors,
+      (SELECT COUNT(*) FROM turns t WHERE t.session_id = s.id
+         AND NOT EXISTS (SELECT 1 FROM thinkings th WHERE th.turn_id = t.id)
+         AND NOT EXISTS (SELECT 1 FROM tool_calls tc WHERE tc.turn_id = t.id)) AS emptyTurns
+    FROM sessions s
+  `).all() as {
+    session_id: string; harness: string; cwd: string | null;
+    turns: number; tools: number; errors: number; emptyTurns: number;
+  }[];
+  const retryMap = new Map<string, number>(
+    (d.prepare(`
+      SELECT a.session_id, COUNT(*) AS n FROM tool_calls a
+      WHERE EXISTS (
         SELECT 1 FROM tool_calls b WHERE b.session_id = a.session_id
           AND b.name = a.name AND b.input IS a.input AND b.rowid = a.rowid - 1
-      )`).get(s.id) as { n: number }).n;
-    const emptyTurns = (d.prepare(`
-      SELECT COUNT(*) AS n FROM turns t WHERE t.session_id=?
-        AND NOT EXISTS (SELECT 1 FROM thinkings th WHERE th.turn_id=t.id)
-        AND NOT EXISTS (SELECT 1 FROM tool_calls tc WHERE tc.turn_id=t.id)`).get(s.id) as { n: number }).n;
-    const errRate = tools ? errors / tools : 0;
-    const retRate = tools ? retries / tools : 0;
-    const empRate = turnsRow.n ? emptyTurns / turnsRow.n : 0;
-    const score2 = 100 - errRate * 400 - retRate * 200 - empRate * 100;
-    const grade = score2 >= 85 ? "A" : score2 >= 65 ? "B" : score2 >= 40 ? "C" : "D";
-    out.push({
-      sessionId: s.id,
-      harness: s.harness,
-      cwd: s.cwd,
-      turns: turnsRow.n,
-      tools,
-      errors,
-      errorRate: +errRate.toFixed(3),
-      retries,
-      retryRate: +retRate.toFixed(3),
-      emptyTurns,
-      grade,
-    });
-  }
-  return out.sort((a, b) => b.errorRate - a.errorRate || b.tools - a.tools);
+      ) GROUP BY a.session_id
+    `).all() as { session_id: string; n: number }[]).map((r) => [r.session_id, r.n])
+  );
+
+  return base
+    .map((r) => {
+      const retries = retryMap.get(r.session_id) ?? 0;
+      const errRate = r.tools ? r.errors / r.tools : 0;
+      const retRate = r.tools ? retries / r.tools : 0;
+      const empRate = r.turns ? r.emptyTurns / r.turns : 0;
+      const score = 100 - errRate * 400 - retRate * 200 - empRate * 100;
+      const grade = score >= 85 ? "A" : score >= 65 ? "B" : score >= 40 ? "C" : "D";
+      return {
+        sessionId: r.session_id,
+        harness: r.harness,
+        cwd: r.cwd ?? undefined,
+        turns: r.turns,
+        tools: r.tools,
+        errors: r.errors,
+        errorRate: +errRate.toFixed(3),
+        retries,
+        retryRate: +retRate.toFixed(3),
+        emptyTurns: r.emptyTurns,
+        grade,
+      };
+    })
+    .sort((a, b) => b.errorRate - a.errorRate || b.tools - a.tools);
 }
 
 function safeParse(s: string | null): unknown {
