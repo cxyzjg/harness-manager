@@ -10,6 +10,7 @@ import { existsSync, mkdirSync, cpSync, rmSync, writeFileSync, readFileSync, app
 import { join, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { loadCache, saveCache } from "./storage.js";
+import { audit } from "./core/audit.js";
 import type { HarnessResource } from "./types.js";
 
 /**
@@ -121,6 +122,8 @@ export function executeMutation(req: ApplyRequest, repoRoot: string, confirmed: 
     }
     saveCache(cache);
   }
+
+  audit({ actor: "cli", action: req.type, target: req.resourceId ?? "", before: undefined, after: req.reason ?? req.target, detail: JSON.stringify(req) });
 
   return { planned: [plan], executed: true };
 }

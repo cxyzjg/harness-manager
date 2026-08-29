@@ -28,8 +28,8 @@ interface TriggerEv {
 }
 
 /** 读 realtime events.log 的 skill_trigger */
-function readTriggers(): TriggerEv[] {
-  const p = join(dataDir(), "realtime", "events.log");
+function readTriggers(eventsPath?: string): TriggerEv[] {
+  const p = eventsPath ?? join(dataDir(), "realtime", "events.log");
   try {
     return readFileSync(p, "utf-8")
       .split("\n")
@@ -62,8 +62,8 @@ export interface SessionLite {
  * @param sessions 统一库的会话(带时间/cwd)
  * @param outcomeOf sessionId -> 成效分(0-100)
  */
-export function linkSkillEffects(sessions: SessionLite[], outcomeOf: Map<string, number>): SkillEffect[] {
-  const triggers = readTriggers();
+export function linkSkillEffects(sessions: SessionLite[], outcomeOf: Map<string, number>, eventsPath?: string): SkillEffect[] {
+  const triggers = readTriggers(eventsPath);
   if (!triggers.length) return [];
 
   // 会话索引: 按 cwd 尾段 + 时间邻近匹配 trigger -> session

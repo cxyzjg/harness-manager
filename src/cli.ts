@@ -433,6 +433,30 @@ async function main(): Promise<void> {
       console.log("审查: hm story <id> | hm turns <id>");
       break;
     }
+    case "backup": {
+      const { backupDb } = await import("./core/backup.js");
+      const r = await backupDb();
+      console.log(`✓ 备份完成: ${r.file} (${Math.round(r.size / 1024)}KB, 保留${r.kept}份)`);
+      break;
+    }
+    case "export": {
+      const { exportSessionMarkdown } = await import("./core/backup.js");
+      const id = args[0];
+      if (!id) return console.log("用法: hm export <session-id> [输出目录]");
+      const r = exportSessionMarkdown(id, args[1]);
+      if (!r) return console.log(`未找到会话 ${id}`);
+      console.log(`✓ 导出: ${r.file}`);
+      break;
+    }
+    case "prune": {
+      const { pruneOldData, rotateEventsLogIfNeeded } = await import("./core/lifecycle.js");
+      const rot = rotateEventsLogIfNeeded();
+      const days = Number(args[0] ?? 90);
+      const r = pruneOldData(days);
+      console.log(`✓ 清理完成 (保留${r.retainDays}天): 会话${r.sessionsDeleted} turns${r.turnsDeleted} 工具${r.toolCallsDeleted} 归档${r.archivesPruned}`);
+      if (rot.rotated) console.log("  events.log 已轮转");
+      break;
+    }
     case "dash": {
       // 聚合仪表盘
       const me4 = await import("./core/modelEval.js");
@@ -731,6 +755,9 @@ function helpText(): string {
   hm live              实时监控(工具调用/活跃会话, 需pi extension)
   hm usage             技能触发统计(次数/项目/时间/最近记录)
   hm registry          技能注册表管理(统一所有技能源, 冲突解决)
+  hm backup            备份数据库(保留5份)
+  hm export <id>       导出会话审查报告(Markdown)
+  hm prune [days]      清理90天前原始数据(聚合保留)
   hm resources         列出资源 (skills/工具/扩展)
   hm skill [<name>]    技能中文说明(全部或单个)
   hm suggest <意图>    按场景推荐技能

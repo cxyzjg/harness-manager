@@ -26,6 +26,7 @@ describe("语义去重", () => {
 
 describe("触发效果关联", () => {
   it("无触发记录返回空", () => {
-    expect(linkSkillEffects([{ id: "s1", harness: "pi", cwd: "/p" }], new Map())).toEqual([]);
+    // 传不存在的隔离路径, 不读真实events.log
+    expect(linkSkillEffects([{ id: "s1", harness: "pi", cwd: "/p" }], new Map(), "/tmp/nonexistent-events-test.log")).toEqual([]);
   });
 });

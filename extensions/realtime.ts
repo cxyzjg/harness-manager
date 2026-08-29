@@ -9,6 +9,7 @@
  * 或参考 pi 文档将包含本文件的包加入 settings.packages。
  */
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import Database from "better-sqlite3";
 import { appendFileSync, mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
@@ -27,21 +28,46 @@ function logEvent(type: string, data: Record<string, unknown>): void {
 }
 
 export default function (pi: ExtensionAPI): void {
-  // 会话开始
-  pi.on("session_start", async (event) => {
-    logEvent("session_start", {
-      reason: (event as { reason?: string }).reason ?? "unknown",
-      cwd: (event as { cwd?: string }).cwd ?? "",
+  // 安全注册: handler 异常不影响 pi 本身(只记错误日志)
+  const safeOn = (event: string, handler: (ev: unknown) => Promise<unknown>): void => {
+    pi.on(event, async (ev: unknown) => {
+      try {
+        return await handler(ev);
+      } catch (err) {
+        logEvent("extension_error", { event, message: String((err as Error).message ?? err).slice(0, 200) });
+        return undefined; // 降级: 不阻断 pi
+      }
     });
+  };
+
+  // 会话开始
+  safeOn("session_start", async (event: unknown, ctx: unknown) => {
+    const ev2 = event as { reason?: string; cwd?: string };
+    logEvent("session_start", {
+      reason: ev2.reason ?? "unknown",
+      cwd: ev2.cwd ?? "",
+    });
+    // Q5: 工作流嵌入 — 会话启动时展示驾驶舱摘要
+    try {
+      const c2 = ctx as { ui?: { notify?: (msg: string, level?: string) => void } };
+      if (true) {
+        const db = new Database(join(homedir(), ".harness-manager", "db.sqlite"), { readonly: true });
+        const sessions = (db.prepare("SELECT COUNT(*) n FROM sessions").get() as { n: number }).n;
+        const tools = (db.prepare("SELECT COUNT(*) n FROM tool_calls").get() as { n: number }).n;
+        const errs = (db.prepare("SELECT COALESCE(SUM(is_error),0) n FROM tool_calls").get() as { n: number }).n;
+        db.close();
+        c2.ui?.notify?.(`📊 驾驶舱: ${sessions} 会话 · ${tools} 工具调用 · ${errs} 错误 — hm dash 查看`, "info");
+      }
+    } catch { /* 统计失败静默 */ }
   });
 
   // 会话结束
-  pi.on("session_shutdown", async () => {
+  safeOn("session_shutdown", async () => {
     logEvent("session_shutdown", {});
   });
 
   // 上下文压缩事件(P3: 上下文管理可见)
-  pi.on("session_before_compact", async (event) => {
+  safeOn("session_before_compact", async (event) => {
     const e = event as { reason?: string; entryCount?: number; model?: string };
     logEvent("compaction", {
       reason: e.reason ?? "auto",
@@ -52,7 +78,7 @@ export default function (pi: ExtensionAPI): void {
   });
 
   // 模型切换(P3: state 可见)
-  pi.on("session_info_changed", async (event) => {
+  safeOn("session_info_changed", async (event) => {
     const e = event as { model?: string; provider?: string; thinkingLevel?: string };
     if (e.model || e.provider) {
       logEvent("model_change", { model: e.model ?? "", provider: e.provider ?? "", thinkingLevel: e.thinkingLevel ?? "" });
@@ -61,7 +87,7 @@ export default function (pi: ExtensionAPI): void {
   });
 
   // 工具调用（核心：实时监控）
-  pi.on("tool_call", async (event) => {
+  safeOn("tool_call", async (event) => {
     const e = event as {
       toolName?: string;
       input?: unknown;
@@ -79,7 +105,7 @@ export default function (pi: ExtensionAPI): void {
   });
 
   // 工具结果(①补pi实时错误率): 记录 isError/耗时 -> events.log
-  pi.on("tool_result", async (event) => {
+  safeOn("tool_result", async (event) => {
     const e = event as {
       toolName?: string;
       toolCallId?: string;
@@ -98,7 +124,7 @@ export default function (pi: ExtensionAPI): void {
   });
 
   // 技能触发追踪 + 真启停过滤: 用户每回合记录已加载技能, 并从系统提示移除禁用技能
-  pi.on("before_agent_start", async (event) => {
+  safeOn("before_agent_start", async (event) => {
     const e = event as {
       prompt?: string;
       systemPrompt?: string;
@@ -143,7 +169,7 @@ export default function (pi: ExtensionAPI): void {
   });
 
   // 实时思考/回复流(P5: 开启会话实时观测 agent 思考与推理链)
-  pi.on("message_end", async (event) => {
+  safeOn("message_end", async (event) => {
     const e = event as {
       message?: { role?: string; content?: { type?: string; thinking?: string; text?: string; name?: string; arguments?: unknown }[] };
     };
