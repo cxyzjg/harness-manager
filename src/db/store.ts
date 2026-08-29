@@ -22,6 +22,8 @@ export function getDb(): Database.Database {
   mkdirSync(dataDir(), { recursive: true });
   db = new Database(join(dataDir(), "db.sqlite"));
   db.pragma("journal_mode = WAL");
+  db.pragma("busy_timeout = 5000"); // 写锁等待5s, 根治测试与服务的锁竞争瞬态失败
+  db.pragma("synchronous = NORMAL"); // WAL下安全且更快
   migrate(db);
   return db;
 }

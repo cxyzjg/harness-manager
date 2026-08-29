@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>harness-manager 控制面</title>
+<title>驾驶舱 · Agent 统一驾驶舱 (harness-manager)</title>
 <style>
   :root { --bg:#0f1115; --card:#1a1d24; --line:#2a2e37; --fg:#e6e8eb; --muted:#9aa0a8; --accent:#4f8cff; --green:#3fb950; --red:#f85149; --yellow:#d29922; }
   * { box-sizing:border-box; margin:0; padding:0; }
@@ -58,8 +58,8 @@
 </head>
 <body>
 <header>
-  <h1>🛰️ harness-manager</h1>
-  <span class="badge">跨 Agent 资源 / 会话 / 调用链 控制面</span>
+  <h1>🛰️ 驾驶舱</h1>
+  <span class="badge">pi · Claude Code · Codex · dsh — 统一观测与管理</span>
 </header>
 <nav id="nav">
   <button data-page="dash" class="active">📊 仪表盘</button>
@@ -219,6 +219,23 @@ async function loadDash() {
     var an = await anomaliesP;
     renderAnomalies(an && an.anomalies || []);
   } catch { /* ignore */ }
+  // 冷启动引导: extension未生效时一次性显示(可关闭)
+  try {
+    var live0 = await api("/api/live");
+    if (!live0.active && !window.localStorage.getItem("hm-onboarded")) {
+      var host = document.getElementById("anomaly-bar");
+      if (host) host.insertAdjacentHTML("afterbegin",
+        '<div class="panel" style="border-left:3px solid var(--accent);padding:10px 14px;margin-bottom:8px">' +
+        '<h2 style="font-size:14px">👋 首次使用引导 (3步开启完整能力)</h2>' +
+        '<ol style="font-size:13px;line-height:1.9;margin:6px 0 0 18px">' +
+        '<li><b>重启 pi 会话</b> — harness-manager 已作为 pi 包安装, 重启后 extension 自动生效(记录思考流/技能触发/工具结果)</li>' +
+        '<li><b>正常使用 pi 工作</b> — 触发统计/错误率/上下文实测数据将自动积累</li>' +
+        '<li><b>回到这里查看</b> — 💬会话历史(审查回放) / ⌨实时监控(思考流) / 🧠技能中心(启停与分诊)</li>' +
+        '</ol>' +
+        '<button class="op" style="margin-top:8px" onclick="dismissOnboard()">我知道了</button>' +
+        '</div>');
+    }
+  } catch(e) {}
   const c1 = [
     { n: d.resources.skills, l: "技能总数" },
     { n: d.sessions.total, l: "会话数" },
@@ -269,6 +286,12 @@ async function loadDash() {
       }).join('') + '</tbody></table>' +
       '<p class="muted" style="font-size:11px;margin-top:6px">综合分=效率30%+质量45%+稳定25%; 样本少的模型结论参考性有限。公平对比请在同一项目跑同类任务。</p>';
   }).catch(function(){});
+}
+
+function dismissOnboard() {
+  try { window.localStorage.setItem("hm-onboarded", "1"); } catch(e) {}
+  var el = document.querySelector("#anomaly-bar .panel");
+  if (el) el.remove();
 }
 
 function renderAnomalies(list) {
@@ -494,6 +517,7 @@ function loadMoreTurns() {
 
 async function showReview(id) {
   _view = "review";
+  if (location.hash !== "#/review/" + encodeURIComponent(id)) location.hash = "#/review/" + encodeURIComponent(id);
   toast("加载审查回放…");
   var triple = await Promise.all([
     api("/api/v2/review?id=" + encodeURIComponent(id)),
@@ -644,11 +668,30 @@ async function loadUsage() {
 
 $("#nav").addEventListener("click", (e) => {
   const b = e.target.closest("button"); if (!b) return;
-  document.querySelectorAll("#nav button").forEach((x) => x.classList.remove("active"));
-  b.classList.add("active");
-  if (b.dataset.page !== "live") _view2 = ""; // 离开实时页则停轮询
-  pages[b.dataset.page]();
+  location.hash = "#/" + b.dataset.page; // 路由驱动(触发hashchange)
 });
+
+// hash 路由: 解析 -> 渲染
+function applyRoute() {
+  var h = location.hash.replace(/^#\/?/, ""); // #/sessions -> sessions
+  if (h.indexOf("review/") === 0) {
+    // #/review/<id>
+    var id = decodeURIComponent(h.slice("review/".length));
+    var b = document.querySelector('#nav button[data-page="sessions"]');
+    if (b) { document.querySelectorAll("#nav button").forEach(function(x){x.classList.remove("active")}); b.classList.add("active"); }
+    if (b.dataset.page !== "live") _view2 = "";
+    _view = "review";
+    showReview(id);
+    return;
+  }
+  var page = h || "dash";
+  if (!pages[page]) page = "dash";
+  document.querySelectorAll("#nav button").forEach(function(x){ x.classList.toggle("active", x.dataset.page === page); });
+  if (page !== "live") _view2 = "";
+  _view = page === "sessions" ? "sessions" : page === "dash" ? "dash" : page;
+  pages[page]();
+}
+window.addEventListener("hashchange", applyRoute);
 
 // 会话排序按钮(事件委托)
 document.addEventListener("click", function(ev) {
@@ -668,7 +711,7 @@ async function rescanNow() {
   if (active && pages[active.dataset.page]) pages[active.dataset.page]();
 }
 
-loadDash(); _view = "dash";
+applyRoute();
 </script>
 </body>
 </html>
