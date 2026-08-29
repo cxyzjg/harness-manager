@@ -172,25 +172,19 @@ const routes: Record<string, (url: URL) => Promise<unknown> | unknown> = {
       import("./core/skills/skillHealth.js"),
       import("./core/skills/usage.js"),
     ]);
-    const mt = cached ? await import("./core/sessions/metrics.js") : null;
-    const tv = cached ? await import("./core/sessions/turnView.js") : null;
+    // 可靠性汇总: 复用SQL版perSessionReliability(修复: 旧JSONL链路因id带前缀匹配不到文件, 恒为0)
+    const d = getDb();
+    const rel = await import("./db/reviewQuery.js").then(({ perSessionReliability }) => perSessionReliability());
+    const grades = { A: 0, B: 0, C: 0, D: 0 };
+    let errSum = 0, retrySum = 0;
+    for (const r of rel) {
+      grades[r.grade as "A" | "B" | "C" | "D"]++;
+      errSum += r.errorRate; retrySum += r.retryRate;
+    }
     const resources = cached?.resources ?? [];
     const sessions = cached?.sessions ?? [];
     const health = assessSkillHealth(resources);
     const tokens = aggregateTokens(sessions);
-    // 全会话可靠性汇总
-    let errSum = 0, retrySum = 0, grades = { A: 0, B: 0, C: 0, D: 0 };
-    if (mt && tv) {
-      for (const s of sessions) {
-        const view = s.harness === "pi"
-          ? tv.buildTurnViewFromPiFile(tv.findPiSessionFile(s.id), s.id)
-          : tv.buildTurnViewFromCcFile(tv.findCcSessionFile(s.id), s.id);
-        if (!view) continue;
-        const m2 = mt.computeMetrics(view, s);
-        errSum += m2.reliability.errorRate; retrySum += m2.reliability.retryRate;
-        grades[m2.reliability.grade]++;
-      }
-    }
     const quantified = Object.values(grades).reduce((a, b) => a + b, 0);
     const usage = skillUsageStats();
     return {
@@ -207,6 +201,66 @@ const routes: Record<string, (url: URL) => Promise<unknown> | unknown> = {
       reliability: { quantified, avgErrorRate: quantified ? +((errSum / quantified) * 100).toFixed(1) : 0,
         avgRetryRate: quantified ? +((retrySum / quantified) * 100).toFixed(1) : 0, grades },
       triggers: { total: usage.totalTriggers, top: Object.entries(usage.bySkill).sort((a, b) => b[1] - a[1]).slice(0, 8).map(([name, count]) => ({ name, count })) },
+      // v2 仪表盘增强: 时间趋势 + 成本估算 + 项目排行 + 技能效果关联
+      trend: (() => {
+        const now = Date.now();
+        const win = (from: number, to: number): { sessions: number; tools: number; tokens: number } => {
+          let se = 0, to2 = 0, tk = 0;
+          for (const s of sessions) {
+            const t = s.startedAt ? new Date(s.startedAt).getTime() : 0;
+            if (t >= from && t < to) {
+              se++;
+              const tc = d.prepare("SELECT COUNT(*) n FROM tool_calls WHERE session_id=?").get(s.id) as { n: number };
+              to2 += tc.n;
+              const c = d.prepare("SELECT COALESCE(SUM(input_tokens+output_tokens),0) n FROM costs WHERE session_id=?").get(s.id) as { n: number };
+              tk += c.n;
+            }
+          }
+          return { sessions: se, tools: to2, tokens: tk };
+        };
+        const now2 = Date.now();
+        const cur = win(now2 - 7 * 864e5, now2 + 864e5);
+        const prev = win(now2 - 14 * 864e5, now2 - 7 * 864e5);
+        return { last7: cur, prev7: prev };
+      })(),
+      costEstimate: (() => {
+        // 主流模型单价表($/1M tokens): 无单价模型归 other 按均值估
+        const PRICES: Record<string, { in: number; out: number }> = {
+          "glm-5": { in: 0.6, out: 2.2 }, "glm-4.7": { in: 0.5, out: 1.8 },
+          "glm-5.1": { in: 0.6, out: 2.2 }, "glm-5.2": { in: 0.6, out: 2.2 },
+          "deepseek-v4": { in: 0.27, out: 1.1 },
+        };
+        const rows = d.prepare(`SELECT COALESCE(c.model, 'unknown') AS model,
+            SUM(c.input_tokens) AS i, SUM(c.output_tokens) AS o
+          FROM costs c GROUP BY model`).all() as { model: string; i: number; o: number }[];
+        let totalUsd = 0;
+        const byModel = rows.map((r) => {
+          const key = Object.keys(PRICES).find((k) => r.model.toLowerCase().includes(k)) ?? "";
+          const price = key ? PRICES[key] : { in: 0.5, out: 1.8 };
+          const usd = (r.i / 1e6) * price.in + (r.o / 1e6) * price.out;
+          totalUsd += usd;
+          return { model: r.model, tokens: r.i + r.o, usd: +usd.toFixed(2) };
+        }).sort((a, b) => b.usd - a.usd);
+        return { totalUsd: +totalUsd.toFixed(2), note: "按公开价格粗估, 仅供相对比较", byModel };
+      })(),
+      projects: (() => {
+        const map: Record<string, { sessions: number; tools: number; tokens: number; last: string }> = {};
+        for (const s of sessions) {
+          const key = (s.cwd ?? "?").split(/[\/]/).filter(Boolean).slice(-2).join("/");
+          const m = (map[key] ??= { sessions: 0, tools: 0, tokens: 0, last: "" });
+          m.sessions++;
+          m.tools += s.tools.length;
+          m.tokens += s.tokenUsage?.total ?? 0;
+          if ((s.startedAt ?? "") > m.last) m.last = s.startedAt ?? "";
+        }
+        return Object.entries(map).map(([project, v]) => ({ project, ...v })).sort((a, b) => b.tools - a.tools).slice(0, 8);
+      })(),
+      skillEffects: await import("./core/skills/effectLink.js").then(({ linkSkillEffects }) =>
+        linkSkillEffects(sessions.map((s) => ({ id: s.id, harness: s.harness, started_at: s.startedAt, cwd: s.cwd })),
+          (() => {
+            const out = evaluateAll(sessions);
+            return new Map(out.map((o) => [o.sessionId, o.score]));
+          })()).slice(0, 8)),
     };
   },
   "/api/skills": async () => {

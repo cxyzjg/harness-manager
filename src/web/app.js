@@ -146,79 +146,85 @@ async function pollLive() {
 async function loadDash() {
   _view = "dash";
   const anomaliesP = api("/api/v2/anomalies").catch(() => null);
-  const d = await api("/api/dash");
-  // 异常优先渲染(不等量化数据)
-  try {
-    var an = await anomaliesP;
-    renderAnomalies(an && an.anomalies || []);
-  } catch { /* ignore */ }
-  // 冷启动引导: extension未生效时一次性显示(可关闭)
-  try {
-    var live0 = await api("/api/live");
-    if (!live0.active && !window.localStorage.getItem("hm-onboarded")) {
-      var host = document.getElementById("anomaly-bar");
-      if (host) host.insertAdjacentHTML("afterbegin",
-        '<div class="panel" style="border-left:3px solid var(--accent);padding:10px 14px;margin-bottom:8px">' +
-        '<h2 style="font-size:14px">👋 首次使用引导 (3步开启完整能力)</h2>' +
-        '<ol style="font-size:13px;line-height:1.9;margin:6px 0 0 18px">' +
-        '<li><b>重启 pi 会话</b> — harness-manager 已作为 pi 包安装, 重启后 extension 自动生效(记录思考流/技能触发/工具结果)</li>' +
-        '<li><b>正常使用 pi 工作</b> — 触发统计/错误率/上下文实测数据将自动积累</li>' +
-        '<li><b>回到这里查看</b> — 💬会话历史(审查回放) / ⌨实时监控(思考流) / 🧠技能中心(启停与分诊)</li>' +
-        '</ol>' +
-        '<button class="op" style="margin-top:8px" onclick="dismissOnboard()">我知道了</button>' +
-        '</div>');
-    }
-  } catch(e) {}
-  const c1 = [
-    { n: d.resources.skills, l: "技能总数" },
-    { n: d.sessions.total, l: "会话数" },
-    { n: fmt(d.tokens.total), l: "token 总量" },
-    { n: fmt(d.sessions.tools), l: "工具调用" },
-    { n: d.triggers.total, l: "技能触发" },
+  const [d, me] = await Promise.all([
+    api("/api/dash"),
+    api("/api/v2/model-eval").catch(() => ({ models: [] })),
+  ]);
+  try { renderAnomalies((await anomaliesP)?.anomalies || []); } catch (e) {}
+
+  // ---- 趋势洞察卡(近7天 vs 前7天) ----
+  var t = d.trend || { last7: {}, prev7: {} };
+  var cur = t.last7 || {}, prev = t.prev7 || {};
+  function trend(curV, prevV, lowerBetter) {
+    if (!prevV && !curV) return "";
+    if (!prevV) return ' <span class="tag green">新增</span>';
+    var pct = Math.round(((curV - prevV) / prevV) * 100);
+    if (pct === 0) return ' <span class="tag">持平</span>';
+    var up = pct > 0;
+    var good = lowerBetter ? !up : up;
+    var cls = good ? "green" : "red";
+    return ' <span class="tag ' + cls + '">' + (up ? "▲+" : "▼") + pct + "%</span>";
+  }
+  var c1 = [
+    { n: cur.sessions ?? 0, l: "近7天会话", tr: trend(cur.sessions ?? 0, prev.sessions ?? 0, false) },
+    { n: fmt(cur.tools ?? 0), l: "近7天工具调用", tr: trend(cur.tools ?? 0, prev.tools ?? 0, false) },
+    { n: fmt(cur.tokens ?? 0), l: "近7天 token", tr: trend(cur.tokens ?? 0, prev.tokens ?? 0, true) },
     { n: d.reliability.quantified, l: "已量化会话" },
-  ].map((x) => '<div class="card"><div class="num">' + x.n + '</div><div class="label">' + x.l + "</div></div>").join("");
-  const hSum = d.skillsHealth.summary?.byLevel || {};
-  const rel = d.reliability || {};
-  const topTrig = (d.triggers.top || []).map((t) => "<tr><td>" + esc(t.name) + '</td><td><b>' + t.count + "</b></td></tr>").join("");
-  const byModel = (d.tokens.byModel || []).map((m) => "<tr><td>" + esc(m.model) + "</td><td>" + fmt(m.input) + "</td><td>" + fmt(m.output) + "</td></tr>").join("");
-  const srcTags = Object.entries(d.resources.bySource || {}).map(([k,v])=>'<span class="tag" style="margin-right:6px">' + esc(k)+":"+v + "</span>").join("");
-  var anomalyHtml = "";
-    try { var ah = document.getElementById("anomaly-bar"); } catch(e) {}
-    $("#content").innerHTML =
-    '<div id="anomaly-bar"></div>' +
-    '<div class="cards">' + c1 + "</div>" +
+    { n: d.triggers.total, l: "技能触发累计" },
+    { n: (d.resources.skills ?? 0), l: "技能总数" },
+  ].map(function(c){
+    return '<div class="card"><div class="num">' + c.n + '</div><div class="label">' + c.l + (c.tr||"") + '</div></div>';
+  }).join("");
+
+  // ---- 可靠性 + 健康 ----
+  var rel = d.reliability || {};
+  var hSum = d.skillsHealth.summary?.byLevel || {};
+  var relHtml =
+    '<div class="panel"><h2>可靠性(全会话)</h2>' +
+      '<p>已量化 ' + rel.quantified + ' · 平均错误率 <b>' + rel.avgErrorRate + '%</b> · 重试率 <b>' + rel.avgRetryRate + '%</b></p>' +
+      '<p style="margin-top:6px"><span class="tag green">A:' + (rel.grades?.A||0) + '</span> <span class="tag yellow">B:' + (rel.grades?.B||0) + '</span> <span class="tag red">C:' + (rel.grades?.C||0) + " D:" + (rel.grades?.D||0) + '</span>' +
+      ' <button class="op" onclick="showReliability()">🔍 下钻</button></p></div>' +
+    '<div class="panel"><h2>技能健康</h2>' +
+      '<p>🟢 ' + (hSum.healthy||0) + ' · 🟡 ' + (hSum.attention||0) + ' · 🔴 ' + (hSum.risk||0) + '</p>' +
+      '<p class="muted" style="font-size:11px;margin-top:6px">触发合计 ' + d.triggers.total + '</p></div>';
+
+  // ---- 成本估算 + 模型评估 ----
+  var cost = d.costEstimate || { byModel: [], totalUsd: 0, note: "" };
+  var costRows = (cost.byModel||[]).map(function(m){
+    var est = m.model === "unknown" || !m.model ? " ≈" : "";
+    return "<tr><td>" + esc(m.model) + est + "</td><td>" + fmt(m.tokens) + '</td><td><b>$' + m.usd + "</b></td></tr>";
+  }).join("");
+  var topModels = (me.models||[]).slice(0, 5).map(function(m){
+    var tag = m.sampleNote.indexOf("充足") >= 0 ? ' <span class="tag green">样本足</span>' : "";
+    return '<tr><td>' + esc(m.model) + tag + '</td><td><b>' + (m.score != null ? m.score : "—") + '</b></td><td>' + m.turns + '</td><td>' + (m.tokensPerTurn != null ? fmt(m.tokensPerTurn) : "—") + '</td></tr>';
+  }).join("");
+
+  // ---- 项目排行 + 技能效果 ----
+  var projRows = (d.projects||[]).map(function(p,i){
+    return '<tr><td>' + (i+1) + '</td><td>' + esc(p.project) + '</td><td>' + p.sessions + '</td><td>' + fmt(p.tools) + '</td><td>' + fmt(p.tokens) + '</td></tr>';
+  }).join("");
+  var effRows = (d.skillEffects||[]).map(function(e){
+    var delta = e.delta != null ? (e.delta > 0 ? '<span class="tag green">+' + e.delta + '</span>' : '<span class="tag red">' + e.delta + '</span>') : '<span class="muted">待数据</span>';
+    return '<tr><td>' + esc(e.skill) + '</td><td>' + e.triggers + '</td><td>' + e.linkedSessions + '</td><td>' + delta + '</td></tr>';
+  }).join("");
+
+  $("#content").innerHTML =
+    '<div class="cards">' + c1 + '</div>' +
     '<div class="row">' +
-      '<div class="panel"><h2>可靠性量化</h2>' +
-        '<p>已量化 ' + rel.quantified + ' 会话 · 平均错误率 <a href="#" onclick="showReliability();return false;"><b>' + rel.avgErrorRate + '%</b></a> · 平均重试率 <b>' + rel.avgRetryRate + '%</b></p>' +
-        '<p style="margin-top:6px"><span class="tag green">A:' + (rel.grades?.A||0) + '</span> <span class="tag yellow">B:' + (rel.grades?.B||0) + '</span> <span class="tag red">C:' + (rel.grades?.C||0) + " D:" + (rel.grades?.D||0) + '</span>' +
-        ' <button class="op" onclick="showReliability()">🔍 下钻明细</button></p>' +
-      "</div>" +
-      '<div class="panel"><h2>技能健康</h2>' +
-        '<p>🟢 ' + (hSum.healthy||0) + " 健康 · 🟡 " + (hSum.attention||0) + " 需关注 · 🔴 " + (hSum.risk||0) + " 风险</p>" +
-        '<p class="muted" style="margin-top:6px">来源: ' + srcTags + "</p>" +
-      "</div>" +
-    "</div>" +
+      '<div class="panel"><h2>💰 成本估算(粗估,供相对比较)</h2>' +
+        '<p>总计 ≈ <b>$' + cost.totalUsd + '</b></p>' +
+        '<table style="font-size:12px"><thead><tr><th>模型</th><th>tokens</th><th>≈$</th></tr></thead><tbody>' + costRows + '</tbody></table>' +
+        '<p class="muted" style="font-size:10px;margin-top:4px">' + esc(cost.note||"") + '</p></div>' +
+      '<div class="panel"><h2>🤖 模型评估排行</h2>' +
+        '<table style="font-size:12px"><thead><tr><th>模型</th><th>评分</th><th>turns</th><th>tok/turn</th></tr></thead><tbody>' + topModels + '</tbody></table></div>' +
+    '</div>' +
     '<div class="row">' +
-      '<div class="panel"><h2>模型评估 (综合分=效率30%+质量45%+稳定25%)</h2><div id="model-eval">加载中…</div></div>' +
-      '<div class="panel"><h2>Token 按模型</h2><table><thead><tr><th>模型</th><th>in</th><th>out</th></tr></thead><tbody>' + byModel + "</tbody></table></div>" +
-      '<div class="panel"><h2>技能触发 Top</h2><table><thead><tr><th>技能</th><th>次数</th></tr></thead><tbody>' + (topTrig || '<tr><td colspan="2" class="muted">暂无(重启pi会话后记录)</td></tr>') + "</tbody></table></div>" +
-    "</div>";
-  // 模型评估渲染
-  api('/api/v2/model-eval').then(function(me){
-    var host = document.getElementById('model-eval');
-    if (!host) return;
-    if (!me.models || !me.models.length) { host.innerHTML = '<span class="muted">无模型数据</span>'; return; }
-    host.innerHTML = '<table style="font-size:12px"><thead><tr><th>模型</th><th>评分</th><th>会话</th><th>tok/turn</th><th>错误率</th><th>成效</th></tr></thead><tbody>' +
-      me.models.map(function(m){
-        var sc = m.score != null ? '<b>' + m.score + '</b>' : '<span class="muted">—</span>';
-        var tag = m.sampleNote.indexOf('充足') >= 0 ? ' <span class="tag green">样本足</span>' : '';
-        return '<tr><td>' + esc(m.model) + tag + '</td><td>' + sc + '</td><td>' + m.sessions + '</td>' +
-          '<td>' + (m.tokensPerTurn != null ? fmt(m.tokensPerTurn) : '—') + '</td>' +
-          '<td>' + (m.errorRate * 100).toFixed(1) + '%</td>' +
-          '<td>' + (m.avgOutcome != null ? m.avgOutcome : '—') + '</td></tr>';
-      }).join('') + '</tbody></table>' +
-      '<p class="muted" style="font-size:11px;margin-top:6px">综合分=效率30%+质量45%+稳定25%; 样本少的模型结论参考性有限。公平对比请在同一项目跑同类任务。</p>';
-  }).catch(function(){});
+      '<div class="panel"><h2>📁 项目投入排行(按工具量)</h2>' +
+        '<table style="font-size:12px"><thead><tr><th>#</th><th>项目</th><th>会话</th><th>工具</th><th>token</th></tr></thead><tbody>' + projRows + '</tbody></table></div>' +
+      '<div class="panel"><h2>🧠 技能效果关联</h2>' +
+        '<table style="font-size:12px"><thead><tr><th>技能</th><th>触发</th><th>关联会话</th><th>成效差</th></tr></thead><tbody>' + (effRows || '<tr><td colspan="4" class="muted">暂无关联数据(需 pi 会话持续使用积累)</td></tr>') + '</tbody></table>' +
+        '<p class="muted" style="font-size:10px;margin-top:4px">成效差 = 用该技能的会话均分 − 全局基线, 正数代表正相关</p></div>' +
+    '</div>';
 }
 
 function dismissOnboard() {
