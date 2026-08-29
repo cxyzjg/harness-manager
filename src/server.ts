@@ -224,26 +224,25 @@ const routes: Record<string, (url: URL) => Promise<unknown> | unknown> = {
         return { last7: cur, prev7: prev };
       })(),
       costEstimate: (() => {
-        // 主流模型单价表($/1M tokens): 无单价模型归 other 按均值估
-        const PRICES: Record<string, { in: number; out: number }> = {
-          "glm-5": { in: 0.6, out: 2.2 }, "glm-4.7": { in: 0.5, out: 1.8 },
-          "glm-5.1": { in: 0.6, out: 2.2 }, "glm-5.2": { in: 0.6, out: 2.2 },
-          "deepseek-v4": { in: 0.27, out: 1.1 },
+        // v2.2: 官方精确成本(pi message.usage.cost), 不再单价表粗估
+        const byModel = d.prepare(`SELECT COALESCE(model,'unknown') AS model,
+            COUNT(*) AS calls,
+            SUM(input_tokens) AS input, SUM(output_tokens) AS output,
+            SUM(cache_read_tokens) AS cacheRead, SUM(reasoning_tokens) AS reasoning,
+            SUM(cost_usd) AS usd
+          FROM costs WHERE cost_usd IS NOT NULL GROUP BY model ORDER BY usd DESC`).all() as Record<string, number>[];
+        const totalUsd = byModel.reduce((a, b) => a + (b.usd ?? 0), 0);
+        const cacheRead = byModel.reduce((a, b) => a + (b.cacheRead ?? 0), 0);
+        const totalIn = byModel.reduce((a, b) => a + (b.input ?? 0), 0);
+        return {
+          totalUsd: +totalUsd.toFixed(2),
+          note: "官方精确成本(pi usage.cost), 含cache计费",
+          cacheHitNote: cacheRead > 0 ? `cache命中 ${cacheRead.toLocaleString()} tok (省重复计费)` : "",
+          byModel: byModel.map((m) => ({ model: m.model, tokens: m.tokens ?? 0, usd: +(m.usd ?? 0).toFixed(2), calls: m.calls })),
+          _cacheRead: cacheRead, _totalIn: totalIn,
         };
-        const rows = d.prepare(`SELECT COALESCE(c.model, 'unknown') AS model,
-            SUM(c.input_tokens) AS i, SUM(c.output_tokens) AS o
-          FROM costs c GROUP BY model`).all() as { model: string; i: number; o: number }[];
-        let totalUsd = 0;
-        const byModel = rows.map((r) => {
-          const key = Object.keys(PRICES).find((k) => r.model.toLowerCase().includes(k)) ?? "";
-          const price = key ? PRICES[key] : { in: 0.5, out: 1.8 };
-          const usd = (r.i / 1e6) * price.in + (r.o / 1e6) * price.out;
-          totalUsd += usd;
-          return { model: r.model, tokens: r.i + r.o, usd: +usd.toFixed(2) };
-        }).sort((a, b) => b.usd - a.usd);
-        return { totalUsd: +totalUsd.toFixed(2), note: "按公开价格粗估, 仅供相对比较", byModel };
       })(),
-      projects: (() => {
+            projects: (() => {
         const map: Record<string, { sessions: number; tools: number; tokens: number; last: string }> = {};
         for (const s of sessions) {
           const key = (s.cwd ?? "?").split(/[\/]/).filter(Boolean).slice(-2).join("/");

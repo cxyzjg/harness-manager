@@ -42,7 +42,7 @@ interface PiEv {
   cwd?: string;
   provider?: string;
   modelId?: string;
-  message?: { role?: string; content?: unknown; usage?: { input?: number; output?: number }; model?: string };
+  message?: { role?: string; content?: unknown; model?: string; usage?: { input?: number; output?: number; totalTokens?: number; cost?: { input?: number; output?: number; total?: number } } };
 }
 
 /** 解析单个 pi 会话文件 -> 统一模型 */
@@ -96,28 +96,37 @@ export function piParse(file: string): IngestResult {
       model = model ?? ev.modelId ?? ev.provider;
       continue;
     }
-    if (ev.type === "usage") {
-      const u = (ev as unknown as { input?: number; output?: number }) ?? {};
-      res.costs.push({
-        session_id: sessionId,
-        model,
-        input_tokens: u.input ?? 0,
-        output_tokens: u.output ?? 0,
-        recorded_at: ev.timestamp,
-      });
-      continue;
-    }
     if (ev.type !== "message" || !ev.message?.role) continue;
 
     msgCount++;
     const role = ev.message.role;
     const content = Array.isArray(ev.message.content) ? (ev.message.content as RawContent[]) : [];
 
-    // v2.1: assistant 消息的 usage.input = 该回合当时上下文总量(实测)
-    if (role === "assistant" && ev.message?.usage && curTurn) {
-      const u = ev.message.usage as { input?: number; output?: number };
-      if (u.input && u.input > 0) {
+    // v2.2: assistant 消息的 usage = LLM官方完整用量(cache/reasoning/精确成本)
+    if (role === "assistant" && ev.message?.usage) {
+      const _tid: string = curTurn ? curTurn.id : "no-turn";
+      const u = ev.message.usage as {
+        input?: number; output?: number; totalTokens?: number;
+        cacheRead?: number; cacheWrite?: number; reasoning?: number;
+        cost?: { input?: number; output?: number; cacheRead?: number; cacheWrite?: number; total?: number };
+      };
+      if (u.input && u.input > 0 && curTurn) {
         turnActual.set(curTurn.id, Math.max(turnActual.get(curTurn.id) ?? 0, u.input));
+      }
+      if (u.input != null || u.output != null) {
+        (res.costs_extended ??= []).push({
+          session_id: sessionId,
+          model: ev.message.model ?? model,
+          input_tokens: u.input ?? 0,
+          output_tokens: u.output ?? 0,
+          cache_read_tokens: u.cacheRead ?? 0,
+          cache_write_tokens: u.cacheWrite ?? 0,
+          reasoning_tokens: u.reasoning ?? 0,
+          total_tokens: u.totalTokens ?? ((u.input ?? 0) + (u.output ?? 0)),
+          cost_usd: u.cost?.total,
+          turn_id: _tid,
+          recorded_at: ev.timestamp,
+        } as never);
       }
     }
 

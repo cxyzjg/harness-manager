@@ -154,6 +154,12 @@ function migrate(d: Database.Database): void {
     "ALTER TABLE sessions ADD COLUMN agent_config_ref TEXT",
     "ALTER TABLE turns ADD COLUMN config_ref TEXT",
     "ALTER TABLE context_snapshots ADD COLUMN actual_total_tokens INTEGER",
+    "ALTER TABLE costs ADD COLUMN cache_read_tokens INTEGER",
+    "ALTER TABLE costs ADD COLUMN cache_write_tokens INTEGER",
+    "ALTER TABLE costs ADD COLUMN reasoning_tokens INTEGER",
+    "ALTER TABLE costs ADD COLUMN total_tokens INTEGER",
+    "ALTER TABLE costs ADD COLUMN cost_usd REAL",
+    "ALTER TABLE costs ADD COLUMN turn_id TEXT",
   ]) {
     try {
       d.exec(stmt);
@@ -240,6 +246,25 @@ export function ingest(res: IngestResult): { ok: boolean; sessionId?: string; er
                                 ON CONFLICT(turn_id) DO UPDATE SET actual_total_tokens=@actual_total_tokens, snapshot_at=@snapshot_at`);
       for (const cs of res.context_snapshots) {
         insCtx.run({ turn_id: cs.turn_id, actual_total_tokens: cs.actual_total_tokens ?? null, snapshot_at: cs.snapshot_at ?? new Date().toISOString() });
+      }
+    }
+
+    // v2.2: costs 精确维度写入(cache/reasoning/cost_usd/turn_id)
+    if (res.costs_extended?.length) {
+      const insCost2 = d.prepare(`INSERT INTO costs (session_id,model,input_tokens,output_tokens,cache_read_tokens,cache_write_tokens,reasoning_tokens,total_tokens,cost_usd,turn_id,recorded_at)
+                                  VALUES (@session_id,@model,@input_tokens,@output_tokens,@cache_read_tokens,@cache_write_tokens,@reasoning_tokens,@total_tokens,@cost_usd,@turn_id,@recorded_at)`);
+      for (const c of res.costs_extended) {
+        insCost2.run({
+          session_id: c.session_id, model: c.model ?? null,
+          input_tokens: c.input_tokens ?? 0, output_tokens: c.output_tokens ?? 0,
+          cache_read_tokens: c.cache_read_tokens ?? null,
+          cache_write_tokens: c.cache_write_tokens ?? null,
+          reasoning_tokens: c.reasoning_tokens ?? null,
+          total_tokens: c.total_tokens ?? null,
+          cost_usd: c.cost_usd ?? null,
+          turn_id: c.turn_id ?? null,
+          recorded_at: c.recorded_at ?? null,
+        });
       }
     }
 

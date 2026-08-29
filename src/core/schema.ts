@@ -66,6 +66,13 @@ export interface CostRecord {
   model?: string;
   input_tokens: number;
   output_tokens: number;
+  /** v2.2 新增精确维度(pi message.usage 官方值) */
+  cache_read_tokens?: number;
+  cache_write_tokens?: number;
+  reasoning_tokens?: number;
+  total_tokens?: number;
+  cost_usd?: number; // 官方精确成本
+  turn_id?: string; // 归属回合(可空: 旧数据)
   recorded_at?: string;
 }
 
@@ -82,6 +89,15 @@ export interface IngestResult {
   thinkings: ThinkingBlock[];
   tool_calls: ToolCallRecord[];
   costs: CostRecord[];
+  /** v2.2: 精确用量明细(pi message.usage 官方值: 含cache/reasoning/cost) */
+  costs_extended?: (CostRecord & {
+    cache_read_tokens?: number;
+    cache_write_tokens?: number;
+    reasoning_tokens?: number;
+    total_tokens?: number;
+    cost_usd?: number;
+    turn_id?: string;
+  })[];
   errors: IngestError[]; // 单条跳过明细
   /** v2.1: turn 级实测上下文总量(pi message.usage.input), 可选 */
   context_snapshots?: ContextSnapshot[];
