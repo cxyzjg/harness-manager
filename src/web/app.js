@@ -256,15 +256,16 @@ function renderAnomalies(list) {
 }
 
 /* ========== 技能中心 ========== */
+var _skillFilter = { cat: "all", q: "", usage: "all" }; // 筛选状态缓存(DOM重建后恢复)
 async function loadSkills() {
   _view = "skills";
   var pair = await Promise.all([api("/api/skills"), api("/api/v2/skill-usage-triage").catch(function(){return [];})]);
   const d = pair[0];
   var usageMap = {};
   (pair[1]||[]).forEach(function(u){ usageMap[u.skill] = u; });
-  const catFilter = document.getElementById("cat-filter")?.value || "all";
-  const usageFilter = document.getElementById("usage-filter")?.value || "all";
-  const q = (document.getElementById("skill-q")?.value || "").toLowerCase();
+  const catFilter = _skillFilter.cat;
+  const usageFilter = _skillFilter.usage;
+  const q = (_skillFilter.q || "").toLowerCase();
   let list = (d.skills || []).map(function(x){
     var u = usageMap[x.name];
     x.usageState = u ? u.state : "active-unused";
@@ -295,15 +296,28 @@ async function loadSkills() {
     "</tr>").join("");
   $("#content").innerHTML = '<div class="panel">' +
     '<div style="margin:6px 0;display:flex;gap:8px;align-items:center;flex-wrap:wrap">' +
-      '<input id="skill-q" placeholder="搜索技能/说明…" oninput="loadSkills()" style="flex:1;min-width:160px;background:#242933;color:var(--fg);border:1px solid var(--line);border-radius:8px;padding:6px 10px">' +
-      '<select id="cat-filter" onchange="loadSkills()" style="background:#242933;color:var(--fg);border:1px solid var(--line);border-radius:6px;padding:4px 8px">' + opts + "</select>" +
-      '<select id="usage-filter" onchange="loadSkills()" style="background:#242933;color:var(--fg);border:1px solid var(--line);border-radius:6px;padding:4px 8px">' +
+      '<input id="skill-q" placeholder="搜索技能/说明…" oninput="_skillFilter.q=this.value;_skillFilter._focusSearch=true;loadSkills()" style="flex:1;min-width:160px;background:#242933;color:var(--fg);border:1px solid var(--line);border-radius:8px;padding:6px 10px">' +
+      '<select id="cat-filter" onchange="_skillFilter.cat=this.value;loadSkills()" style="background:#242933;color:var(--fg);border:1px solid var(--line);border-radius:6px;padding:4px 8px">' + opts + "</select>" +
+      '<select id="usage-filter" onchange="_skillFilter.usage=this.value;loadSkills()" style="background:#242933;color:var(--fg);border:1px solid var(--line);border-radius:6px;padding:4px 8px">' +
         '<option value="all">全部使用度</option><option value="active-unused">未用</option><option value="low-usage">低频</option><option value="active-used">在用</option><option value="disabled">已禁用</option></select>' +
       '<span class="muted" style="font-size:12px">共 ' + list.length + ' 个</span>' +
     "</div>" +
     '<table><thead><tr><th>名称</th><th>中文名</th><th>分类</th><th>来源</th><th>状态</th><th>启停</th><th>触发</th><th>健康</th><th>说明</th><th>操作</th></tr></thead><tbody>' + rows + "</tbody></table>" +
     '<p class="muted" style="font-size:11px;margin-top:8px">启停=真控制: 禁用后 pi 在下一回合把该技能从系统提示移除(agent 不再看见)。</p>' +
   "</div>";
+  // 恢复筛选控件状态(DOM重建后值会丢)
+  var qEl = document.getElementById("skill-q");
+  var catEl = document.getElementById("cat-filter");
+  var usageEl = document.getElementById("usage-filter");
+  if (qEl) { qEl.value = _skillFilter.q; }
+  if (catEl) catEl.value = _skillFilter.cat;
+  if (usageEl) usageEl.value = _skillFilter.usage;
+  // 保持搜索焦点与光标位置(连续输入不中断)
+  if (qEl && document.activeElement !== qEl && _skillFilter._focusSearch) {
+    qEl.focus();
+    var L = qEl.value.length;
+    try { qEl.setSelectionRange(L, L); } catch (e) {}
+  }
 }
 
 async function toggleSkill(name, enable) {
